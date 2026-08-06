@@ -20,13 +20,14 @@ DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
-# Block-letter "KILO" wordmark, five rows tall, rendered left of the live status panel.
+# 3D shadow block "KILO" wordmark, rendered left of the live status panel.
 KILO_ART = (
-    "█   █  █████  █       ███ ",
-    "█  █     █    █      █   █",
-    "███      █    █      █   █",
-    "█  █     █    █      █   █",
-    "█   █  █████  █████   ███ ",
+    "██╗  ██╗██╗██╗      ██████╗ ",
+    "██║ ██╔╝██║██║     ██╔═══██╗",
+    "█████╔╝ ██║██║     ██║   ██║",
+    "██╔═██╗ ██║██║     ██║   ██║",
+    "██║  ██╗██║███████╗╚██████╔╝",
+    "╚═╝  ╚═╝╚═╝╚══════╝ ╚═════╝ ",
 )
 
 
@@ -54,18 +55,33 @@ class TerminalUI:
             online = False
 
         dot = f"{GREEN}●{RESET}" if online else f"{YELLOW}●{RESET}"
-        state = f"{GREEN}online{RESET}" if online else f"{YELLOW}offline — sudo systemctl start kilobyte{RESET}"
+        state = f"{GREEN}online{RESET}" if online else f"{YELLOW}offline{RESET}"
         info = (
             f"{BOLD}{GREEN}KILOBYTE{RESET}  {dot} {state}",
-            f"{DIM}local-first AI · one model · no cloud fallback{RESET}",
-            f"{DIM}model{RESET}    {model_name}" if online else "",
+            f"{DIM}local-first AI · one model · no cloud{RESET}",
+            f"{DIM}model{RESET}    {model_name}" if online else f"{YELLOW}sudo systemctl start kilobyte{RESET}",
             f"{DIM}context{RESET}  {context_size}   {DIM}threads{RESET} {threads}   {DIM}gpu{RESET} {gpu_layers}" if online else "",
+            "",
             f"{DIM}made by 0v3r51ght{RESET}",
         )
         print()
         for art_line, info_line in zip(KILO_ART, info):
             print(f"  {GREEN}{BOLD}{art_line}{RESET}   {info_line}")
         print(f"\n  {DIM}/help · /status · /new · /clear · /exit · Ctrl-C{RESET}\n")
+
+    @staticmethod
+    def _width() -> int:
+        return max(48, min(os.get_terminal_size().columns if sys.stdout.isatty() else 80, 100))
+
+    def _panel_top(self, label: str, color: str) -> None:
+        width = self._width()
+        head = f"─ {label} "
+        print(f"{color}╭{head}{'─' * max(0, width - len(head) - 2)}╮{RESET}")
+
+    def _panel_bottom(self, color: str, note: str = "") -> None:
+        width = self._width()
+        tail = f" {note} ─" if note else ""
+        print(f"{color}╰{'─' * max(0, width - len(tail) - 2)}{tail}╯{RESET}")
 
     async def _permission(self, event: dict[str, Any], writer: asyncio.StreamWriter) -> None:
         prompt = f"\n{YELLOW}Permission required [{event['risk']}]:{RESET} {event['detail']}\nAllow once? [y/N] "
@@ -91,12 +107,12 @@ class TerminalUI:
                     self.session_id = event["session_id"]
                 elif kind == "thinking":
                     elapsed = time.monotonic() - started
-                    sys.stdout.write(f"\r\033[2K{GREEN}{self.SPINNER[spinner % len(self.SPINNER)]}{RESET} {DIM}planning step {event['step']}… {elapsed:0.0f}s{RESET}")
+                    sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} {GREEN}{self.SPINNER[spinner % len(self.SPINNER)]}{RESET} {DIM}thinking · step {event['step']} · {elapsed:0.0f}s{RESET}")
                     sys.stdout.flush()
                     spinner += 1
                 elif kind == "token":
                     if not printed:
-                        sys.stdout.write(f"\r\033[2K{GREEN}")
+                        sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} ")
                         printed = True
                     pending += event.get("text", "")
                     now = time.monotonic()
@@ -106,15 +122,18 @@ class TerminalUI:
                         pending = ""
                         last_flush = now
                 elif kind == "tool_start":
-                    sys.stdout.write(f"\r\033[2K{DIM}↳ {event['name']}…{RESET}\n")
+                    sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} {PURPLE}◈{RESET} {DIM}{event['name']}…{RESET}\n")
                     sys.stdout.flush()
+                    printed = False
                 elif kind == "tool_end":
-                    icon = f"{GREEN}✓" if event.get("ok") else f"{YELLOW}!"
-                    print(f"{icon}{RESET} {DIM}{event['name']}: {event.get('summary', '')[:180]}{RESET}")
+                    icon = f"{GREEN}✓{RESET}" if event.get("ok") else f"{YELLOW}!{RESET}"
+                    print(f"\r\033[2K{GREEN}│{RESET} {icon} {DIM}{event['name']}: {event.get('summary', '')[:160]}{RESET}")
+                    printed = False
                 elif kind == "permission":
                     await self._permission(event, writer)
                 elif kind == "error":
-                    print(f"\r\033[2K{YELLOW}Error:{RESET} {event.get('error')}")
+                    print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}error:{RESET} {event.get('error')}")
+                    printed = False
                 elif kind == "done":
                     break
             if pending:
@@ -125,13 +144,17 @@ class TerminalUI:
         finally:
             writer.close()
             await writer.wait_closed()
-            print(f"\n{GREEN}╰─ response complete ──────────────────────────────────────────╯{RESET}\n")
+            elapsed = time.monotonic() - started
+            self._panel_bottom(GREEN, f"done in {elapsed:0.1f}s")
+            print()
 
     async def run(self) -> None:
         await self.banner()
         while True:
             try:
-                text = (await asyncio.to_thread(input, f"{GREEN}╭─ you ›{RESET} ")).strip()
+                self._panel_top("you", CYAN)
+                text = (await asyncio.to_thread(input, f"{CYAN}│{RESET} ")).strip()
+                self._panel_bottom(CYAN)
             except (EOFError, KeyboardInterrupt):
                 print()
                 return
@@ -141,16 +164,24 @@ class TerminalUI:
                 return
             if text == "/new":
                 self.session_id = None
-                print(f"{DIM}New session started.{RESET}")
+                self._panel_top("session", PURPLE)
+                print(f"{PURPLE}│{RESET} {DIM}new session started; previous context is not carried over{RESET}")
+                self._panel_bottom(PURPLE)
+                print()
                 continue
             if text == "/help":
-                print(
-                    "/new    start a separate session\n"
-                    "/status show daemon, model and resource status\n"
-                    "/clear  clear the screen\n"
-                    "/exit   leave Kilobyte\n"
-                    "Normal text talks to the local brain."
-                )
+                self._panel_top("commands", PURPLE)
+                for name, description in (
+                    ("/new", "start a separate session"),
+                    ("/status", "show daemon, model and resource status"),
+                    ("/clear", "clear the screen and redraw the banner"),
+                    ("/help", "show this list"),
+                    ("/exit", "leave Kilobyte"),
+                ):
+                    print(f"{PURPLE}│{RESET} {GREEN}{name:<8}{RESET} {DIM}{description}{RESET}")
+                print(f"{PURPLE}│{RESET} {DIM}anything else is sent to the local brain{RESET}")
+                self._panel_bottom(PURPLE)
+                print()
                 continue
             if text == "/clear":
                 sys.stdout.write("\033[2J\033[H")
@@ -160,17 +191,30 @@ class TerminalUI:
                 try:
                     status = await self.client.request("status")
                 except (ConnectionError, FileNotFoundError, OSError) as exc:
-                    print(f"{YELLOW}Daemon unavailable:{RESET} {exc}")
+                    self._panel_top("status", YELLOW)
+                    print(f"{YELLOW}│{RESET} daemon unavailable: {exc}")
+                    self._panel_bottom(YELLOW)
+                    print()
                     continue
                 profile = status.get("profile") or {}
-                print(f"{DIM}healthy{RESET}   {status.get('healthy')}")
-                print(f"{DIM}uptime{RESET}    {status.get('uptime_seconds', 0)}s")
-                print(f"{DIM}model{RESET}     {status.get('model')}")
-                print(f"{DIM}context{RESET}   {profile.get('context_size')}  {DIM}threads{RESET} {profile.get('threads')}  {DIM}gpu layers{RESET} {profile.get('gpu_layers')}")
-                print(f"{DIM}memory{RESET}    {status.get('memory')}\n")
+                memory = status.get("memory") or {}
+                self._panel_top("status", PURPLE)
+                for label, value in (
+                    ("healthy", status.get("healthy")),
+                    ("uptime", f"{status.get('uptime_seconds', 0)}s"),
+                    ("model", Path(str(status.get("model", ""))).name),
+                    ("context", f"{profile.get('context_size')}   threads {profile.get('threads')}   gpu layers {profile.get('gpu_layers')}"),
+                    ("memory", f"{profile.get('available_mb')} MiB available of {profile.get('total_mb')} MiB"),
+                    ("sessions", f"{memory.get('sessions')} sessions · {memory.get('messages')} messages · {memory.get('facts')} facts"),
+                ):
+                    print(f"{PURPLE}│{RESET} {DIM}{label:<9}{RESET}{value}")
+                self._panel_bottom(PURPLE)
+                print()
                 continue
-            print(f"{GREEN}╭─ kilo ›{RESET} ", end="", flush=True)
+            self._panel_top("kilo", GREEN)
             try:
                 await self.ask(text)
             except (ConnectionError, FileNotFoundError) as exc:
                 print(f"{YELLOW}Daemon unavailable:{RESET} {exc}\nTry: sudo systemctl restart kilobyte")
+                self._panel_bottom(YELLOW, "not delivered")
+                print()
