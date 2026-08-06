@@ -16,7 +16,7 @@ from .doctor import run_checks
 from .errors import KilobyteError
 from .resources import ResourceManager
 from .rpc import RPCClient
-from .tui import GREEN, RESET, TerminalUI, YELLOW
+from .tui import DIM, GREEN, RESET, TerminalUI, YELLOW
 
 
 def json_print(value: Any) -> None:
@@ -61,7 +61,54 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_parser(action, help=f"{action} the Kilobyte service")
     benchmark = sub.add_parser("benchmark", help="measure a short real inference")
     benchmark.add_argument("--prompt", default="Reply with exactly: Kilobyte is ready.")
+    brain = sub.add_parser("brain", help="manage the trained brain (candidate/current/previous)")
+    brain_sub = brain.add_subparsers(dest="brain_command")
+    brain_sub.add_parser("status", help="show the installed, candidate and previous brains")
+    stage = brain_sub.add_parser("stage", help="stage a trained GGUF as the candidate brain")
+    stage.add_argument("source", help="path to the candidate .gguf")
+    stage.add_argument("--sha256", help="expected checksum to verify before staging")
+    promote = brain_sub.add_parser("promote", help="promote the candidate to the current brain")
+    promote.add_argument("--sha256", help="expected checksum to verify before promoting")
+    brain_sub.add_parser("rollback", help="restore the previous brain after a bad promotion")
     return parser
+
+
+def brain_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Manage the trained brain. Model moves are deliberate and never automatic: a
+    candidate is staged and only becomes current on explicit promotion, and the previous
+    brain is always kept so a bad promotion can be rolled back."""
+    from .brains import BrainError, BrainManager
+
+    manager = BrainManager(settings.data_dir / "models")
+    action = getattr(args, "brain_command", None)
+    try:
+        if action in (None, "status"):
+            status = manager.status()
+            for slot in ("current", "candidate", "previous"):
+                info = status[slot]
+                where = str(info["path"])
+                if info["exists"]:
+                    print(f"{slot:<10} {info['size'] // (1024 * 1024)} MiB   {where}")
+                else:
+                    print(f"{slot:<10} {DIM}absent{RESET}   {where}")
+            return 0
+        if action == "stage":
+            info = manager.stage_candidate(Path(args.source), args.sha256)
+            print(f"{GREEN}staged candidate{RESET} ({info.size // (1024 * 1024)} MiB, sha256 {info.sha256})")
+            print("evaluate it, then: kilo brain promote")
+            return 0
+        if action == "promote":
+            info = manager.promote(args.sha256)
+            print(f"{GREEN}promoted{RESET} to current ({info.sha256}). Restart Kilo to load it: sudo systemctl restart kilobyte")
+            return 0
+        if action == "rollback":
+            info = manager.rollback()
+            print(f"{YELLOW}rolled back{RESET} to the previous brain ({info.sha256}). Restart Kilo: sudo systemctl restart kilobyte")
+            return 0
+    except BrainError as exc:
+        print(f"{YELLOW}brain error:{RESET} {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 async def async_main(args: argparse.Namespace, settings: Settings) -> int:
@@ -120,6 +167,9 @@ def main() -> None:
         raise SystemExit(service_action(args.command))
     if args.command == "logs":
         raise SystemExit(subprocess.run(["journalctl", "-u", "kilobyte.service", "-n", str(args.lines), "--no-pager"], check=False).returncode)
+    if args.command == "brain":
+        # Local filesystem operation; it does not need the daemon.
+        raise SystemExit(brain_command(args, settings))
     try:
         raise SystemExit(asyncio.run(async_main(args, settings)))
     except (FileNotFoundError, ConnectionRefusedError):
