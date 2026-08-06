@@ -133,7 +133,9 @@ class LlamaRuntime:
                 return False
         return await asyncio.to_thread(check)
 
-    def _slot_action(self, action: str, filename: str, timeout: float = 180.0) -> bool:
+    # Kept well under systemd's stop timeout: these run in worker threads that shutdown
+    # cannot interrupt, so a long timeout here delays daemon exit.
+    def _slot_action(self, action: str, filename: str, timeout: float = 25.0) -> bool:
         request = urllib.request.Request(
             f"{self.base_url}/slots/0?action={action}",
             data=json.dumps({"filename": filename}).encode(),

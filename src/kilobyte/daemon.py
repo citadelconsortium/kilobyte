@@ -73,10 +73,15 @@ async def serve() -> None:
         tasks = [task for task in (telegram_task, monitor_task, warmup_task) if task]
         for task in tasks:
             task.cancel()
+        await rpc.close()
+        # Stop llama-server before awaiting the tasks. Warmup, telegram and inference
+        # do blocking HTTP in worker threads; cancelling a task does not interrupt its
+        # thread, and asyncio.run() waits for the default executor at exit. Killing the
+        # server first makes those requests fail immediately, so shutdown stays within
+        # systemd's stop timeout instead of being escalated to SIGKILL.
+        await runtime.stop()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        await rpc.close()
-        await runtime.stop()
         memory.close()
         log.info("stopped cleanly")
 
