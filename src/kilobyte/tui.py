@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import signal
 import sys
 import time
@@ -69,7 +70,11 @@ class TerminalUI:
 
     @staticmethod
     def _width() -> int:
-        cols = sys.stdout.get_terminal_size().columns if sys.stdout.isatty() else 80
+        try:
+            cols = os.get_terminal_size().columns
+        except OSError:
+            # No controlling terminal (piped, service context): assume a sane width.
+            cols = 80
         return max(48, min(cols, 100))
 
     def _rule_top(self, label: str, color: str) -> None:
