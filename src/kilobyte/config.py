@@ -78,6 +78,10 @@ class Settings:
         return self.config_dir / "telegram.json"
 
     @property
+    def mcp_path(self) -> Path:
+        return self.config_dir / "mcp.json"
+
+    @property
     def allowed_roots(self) -> tuple[Path, ...]:
         return (self.home.resolve(), Path("/tmp").resolve())
 

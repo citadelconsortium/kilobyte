@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable
 
 from .config import Settings
 from .errors import SecurityError, ToolError
+from .mcp import MCPRegistry
 from .memory import MemoryStore
 from .security import CommandPolicy, PathPolicy, PermissionCallback, PermissionManager, Risk
 
@@ -85,10 +86,11 @@ def _object_schema(properties: dict[str, Any], required: list[str] | None = None
 
 
 class ToolRegistry:
-    def __init__(self, settings: Settings, memory: MemoryStore, permissions: PermissionManager):
+    def __init__(self, settings: Settings, memory: MemoryStore, permissions: PermissionManager, mcp: "MCPRegistry | None" = None):
         self.settings = settings
         self.memory = memory
         self.permissions = permissions
+        self.mcp = mcp
         self.paths = PathPolicy(settings.allowed_roots)
         self.commands = CommandPolicy()
         self._tools: dict[str, ToolDefinition] = {}
@@ -109,9 +111,27 @@ class ToolRegistry:
         """
         del request
         blocked = {"write_file", "run_command"} if remote else set()
-        return [tool.openai_schema() for name, tool in self._tools.items() if name not in blocked]
+        schemas = [tool.openai_schema() for name, tool in self._tools.items() if name not in blocked]
+        # Tools published by MCP servers are external code; remote callers never get them.
+        if self.mcp is not None and not remote:
+            schemas.extend(self.mcp.schemas())
+        return schemas
 
     async def execute(self, name: str, arguments: dict[str, Any], context: ToolContext) -> Any:
+        if self.mcp is not None and self.mcp.resolve(name) is not None:
+            if context.remote:
+                raise SecurityError(f"{name} is unavailable over Telegram")
+            # An MCP server is third-party code reached from this machine, so calling one
+            # is gated like any other outward action rather than treated as safe.
+            await self.permissions.authorize("mcp.call", name, Risk.WRITE, context.remote, context.permission_callback)
+            started = time.monotonic()
+            try:
+                result = await self.mcp.call(name, arguments)
+                self.memory.audit(context.session_id, name, arguments, f"ok in {time.monotonic() - started:.3f}s", context.remote)
+                return result
+            except Exception as exc:
+                self.memory.audit(context.session_id, name, arguments, f"error: {exc}", context.remote)
+                raise
         tool = self._tools.get(name)
         if tool is None:
             raise ToolError(f"unknown tool: {name}")

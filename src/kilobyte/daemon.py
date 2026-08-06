@@ -6,6 +6,7 @@ import signal
 
 from .agent import Agent
 from .config import Settings
+from .mcp import MCPRegistry
 from .memory import MemoryStore
 from .prompt import SYSTEM_PROMPT
 from .resources import ResourceManager
@@ -28,7 +29,8 @@ async def serve() -> None:
     memory = MemoryStore(settings.database_path, settings.memory_message_limit, settings.memory_fact_limit, settings.memory_skill_limit)
     resources = ResourceManager(settings)
     permissions = PermissionManager(settings.policy_path)
-    tools = ToolRegistry(settings, memory, permissions)
+    mcp = MCPRegistry(settings.mcp_path)
+    tools = ToolRegistry(settings, memory, permissions, mcp)
     runtime = LlamaRuntime(settings, resources)
     agent = Agent(settings, runtime, memory, tools)
     rpc = RPCServer(settings.socket_path, agent, runtime, resources, memory)
@@ -62,6 +64,9 @@ async def serve() -> None:
     try:
         log.info("starting persistent model runtime")
         await runtime.start()
+        # Started before warmup so any server tools are part of the prefix that gets
+        # primed and cached, rather than changing it on the first real request.
+        await mcp.start()
         await rpc.start()
         telegram_task = asyncio.create_task(telegram.run(), name="telegram-bridge")
         monitor_task = asyncio.create_task(monitor_runtime(), name="runtime-monitor")
@@ -80,6 +85,7 @@ async def serve() -> None:
         # server first makes those requests fail immediately, so shutdown stays within
         # systemd's stop timeout instead of being escalated to SIGKILL.
         await runtime.stop()
+        await mcp.stop()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         memory.close()

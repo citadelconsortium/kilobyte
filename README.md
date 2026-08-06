@@ -56,10 +56,41 @@ with total time, time to first token, and which tools ran.
 ## Tools
 
 `read_file`, `write_file`, `list_files`, `search_files`, `run_command`, `system_info`,
-`web_search`, `web_fetch`, `remember`, `recall`.
+`web_search`, `web_fetch`, `remember`, `recall`, `save_skill`, `list_skills`.
 
 Results are compacted before reaching the model, so a large directory listing or command output
 cannot displace the conversation.
+
+## Skills
+
+Once a multi-step task works, Kilo can record it as a reusable procedure. Matching
+procedures are surfaced automatically on later requests, so the same work is repeated
+rather than replanned -- a few hundred tokens of known-good steps instead of several
+planning rounds. Outcomes are tracked, so procedures that keep working sort first, and
+the registry is bounded.
+
+## MCP servers
+
+Tools from Model Context Protocol servers can be offered to Kilo alongside the built-in
+ones. Copy `config/mcp.example.json` to `/etc/kilobyte/mcp.json`:
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/kilobyte"]
+    }
+  }
+}
+```
+
+Servers are launched as subprocesses over the stdio transport (MCP 2025-06-18) and their
+tools appear as `mcp__<server>__<tool>`. They are treated as untrusted: a tool without a
+usable input schema is not shown to the model, calling one requires permission like any
+other outward action, results pass through the same compaction, a server that hangs hits
+a request timeout instead of blocking Kilobyte, and one that fails to start is skipped
+rather than taking the daemon down. MCP tools are never offered over Telegram.
 
 ## Documentation
 

@@ -49,6 +49,7 @@ the local model cannot run, Kilobyte says so rather than silently substituting a
 | `resources.py` | Hardware detection and runtime tuning |
 | `security.py` | Path policy, command policy, permission manager |
 | `telegram.py` | Optional remote front end, read-only policy |
+| `mcp.py` | MCP client (stdio), external server lifecycle and tool namespacing |
 | `doctor.py` | Health checks and remediation hints |
 | `prompt.py` | System prompt and remote suffix |
 | `config.py` | Settings, paths, model identity |
@@ -97,6 +98,30 @@ middle-out so the head, the tail and the surrounding structure (exit codes, path
 survive; entry lists are capped to what the budget affords; and the model is told what was
 removed so it can request a narrower slice. History is budgeted the same way, since a
 message count is not a bound on context when one turn can carry a tool result.
+
+## Skills
+
+A procedure recorded after a task succeeds is stored in SQLite and surfaced into context
+when a later request matches its name or trigger. The registry is bounded and ordered by
+observed reliability, so what survives is what has actually worked. Skills go in their own
+message, never the system prompt, so the cached prefix is unaffected.
+
+## MCP
+
+External tools arrive over the Model Context Protocol, stdio transport, protocol version
+2025-06-18. Each server is a subprocess; messages are newline-delimited UTF-8 JSON-RPC
+with no embedded newlines; the session opens with initialize and the initialized
+notification and closes by shutting stdin before escalating.
+
+Servers are untrusted. Their tools are namespaced `mcp__<server>__<tool>`, a tool without
+a usable object input schema is never shown to the model, invoking one requires the same
+permission as any other outward action, and results pass through the same compaction. A
+server that hangs hits a request timeout rather than blocking the daemon, and one that
+fails to start is skipped rather than taking the process down. MCP tools are never offered
+to remote callers.
+
+Servers start before warmup so their schemas are part of the primed prefix rather than
+changing it on the first real request.
 
 ## Security model
 

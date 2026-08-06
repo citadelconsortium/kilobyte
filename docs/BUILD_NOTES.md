@@ -109,6 +109,26 @@ indicator alive, edits a live progress message as work proceeds, publishes a com
 offers inline buttons for status/new/help, and rejects a placeholder token or non-integer
 chat ids rather than treating them as configured.
 
+### Skills and MCP
+
+Added a skill registry: Kilo records a procedure once a multi-step task works, and
+matching procedures are surfaced into context on later requests. On slow hardware this is
+the cheaper side of the trade -- a few hundred tokens of known-good steps against several
+planning rounds, each of which costs a full generation. Skills are keyed by name so
+re-saving refines one in place, outcomes are tracked so reliable ones sort first, and
+growth is bounded by dropping the least reliable and least recently used.
+
+Added an MCP client (stdio transport, protocol 2025-06-18) so tools from external servers
+can be offered alongside the built-in ones. Implemented against the published
+specification: newline-delimited UTF-8 JSON-RPC with no embedded newlines, the
+initialize/initialized handshake, paginated tools/list, and the documented shutdown
+sequence of closing stdin then escalating. Servers are treated as untrusted -- tools are
+namespaced, a tool without a usable object input schema is never shown to the model,
+calling one needs permission, results go through the same compaction, a hung server hits a
+request timeout rather than blocking the daemon, and a server that fails to start is
+skipped. MCP tools are not offered over Telegram. Tested against a real server subprocess
+over real pipes rather than a mock.
+
 ### Installer was not actually one line
 
 `install.sh` required a manual `pacman` step and a pre-existing service user. Both are now
@@ -126,13 +146,21 @@ backend automatically, and GPU offload is detected and used when present.
 correctly and completes multi-step tasks, but will not reason like a large model on long or
 subtle chains. The orchestration layer is not the limiting factor.
 
-**Not yet built.** A skill registry (reusable learned workflows) and an MCP client are
-designed for but not implemented.
+**Model capability is the ceiling, not the framework.** Skills and MCP widen what Kilo can
+reach, but a 1.7B brain still decides when to use them.
 
 ## Verification
 
-36 automated tests covering resources, runtime, agent loop, tools, context compaction,
-memory, security, CLI, installation and Telegram.
+60 automated tests covering resources, runtime, agent loop, tools, context compaction,
+memory, skills, security, CLI, installation, Telegram and MCP (the last against a real
+server subprocess).
+
+A static analysis pass over the source found two genuine web-tool vulnerabilities, both
+confirmed by experiment before being fixed: urllib follows redirects, so validating only
+the requested URL left the private-address block bypassable by a public host answering 302
+with a local address; and ElementTree expands internal entities, so a hostile search
+provider could return a small document that expands to gigabytes on a machine with about
+2 GB to spare. Both are now closed and covered by regression tests.
 
 Verified on the target machine: all ten tools returning real data; the full agent loop
 choosing a tool, reading its result and answering correctly; `kilo doctor` passing; cache
