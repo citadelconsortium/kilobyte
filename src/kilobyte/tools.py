@@ -139,6 +139,18 @@ class ToolRegistry:
         self.register(ToolDefinition("web_fetch", "Fetch a public HTTP(S) page as bounded text.", _object_schema({"url": string}, ["url"]), self._web_fetch))
         self.register(ToolDefinition("remember", "Persist a useful user preference or stable fact.", _object_schema({"content": string, "importance": {"type": "number", "minimum": 0, "maximum": 1}}, ["content"]), self._remember))
         self.register(ToolDefinition("recall", "Search persistent long-term memory.", _object_schema({"query": string}, ["query"]), self._recall))
+        self.register(ToolDefinition(
+            "save_skill",
+            "Record a reusable procedure once you have completed a multi-step task, so the same work can be repeated without replanning it.",
+            _object_schema({"name": string, "when_to_use": string, "steps": string}, ["name", "when_to_use", "steps"]),
+            self._save_skill,
+        ))
+        self.register(ToolDefinition(
+            "list_skills",
+            "List the procedures already learned, with how reliable each has been.",
+            _object_schema({}),
+            self._list_skills,
+        ))
 
     async def _read_file(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         path = self.paths.resolve(str(args["path"]), ctx.cwd, must_exist=True)
@@ -293,3 +305,15 @@ class ToolRegistry:
 
     async def _recall(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         return {"facts": self.memory.recall(str(args["query"]))}
+
+    async def _save_skill(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del ctx
+        name = str(args["name"]).strip()
+        if not name:
+            raise ToolError("a skill needs a name")
+        self.memory.save_skill(name, str(args["when_to_use"]), str(args["steps"]))
+        return {"saved": True, "name": name}
+
+    async def _list_skills(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del args, ctx
+        return {"skills": self.memory.list_skills()}

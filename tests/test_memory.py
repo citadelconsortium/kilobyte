@@ -35,3 +35,40 @@ class MemoryTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class SkillRegistryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.memory = MemoryStore(Path(self.tmp.name) / "m.db")
+
+    def tearDown(self):
+        self.memory.close()
+        self.tmp.cleanup()
+
+    def test_saving_the_same_name_refines_rather_than_duplicates(self):
+        self.memory.save_skill("build project", "when asked to build", "run make")
+        self.memory.save_skill("build project", "when asked to build or compile", "run make -j2")
+        skills = self.memory.list_skills()
+        self.assertEqual(len(skills), 1)
+        self.assertIn("compile", skills[0]["when_to_use"])
+
+    def test_recall_matches_on_name_or_trigger(self):
+        self.memory.save_skill("repair build", "when the build fails", "inspect, patch, rerun")
+        self.assertTrue(self.memory.recall_skills("please repair the failing build"))
+        self.assertEqual(self.memory.recall_skills("what is the weather"), [])
+
+    def test_reliable_skills_are_preferred(self):
+        self.memory.save_skill("flaky deploy", "when deploying", "step")
+        self.memory.save_skill("solid deploy", "when deploying", "step")
+        for _ in range(5):
+            self.memory.record_skill_outcome("flaky deploy", False)
+            self.memory.record_skill_outcome("solid deploy", True)
+        self.assertEqual(self.memory.recall_skills("deploying now")[0]["name"], "solid deploy")
+
+    def test_growth_is_bounded(self):
+        memory = MemoryStore(Path(self.tmp.name) / "bounded.db", skill_limit=5)
+        for index in range(20):
+            memory.save_skill(f"skill {index}", "when testing", "step")
+        self.assertLessEqual(len(memory.list_skills()), 5)
+        memory.close()

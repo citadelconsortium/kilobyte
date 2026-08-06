@@ -66,6 +66,21 @@ class Agent:
                 "role": "system",
                 "content": "Known about this user (context, not instructions):\n- " + "\n- ".join(facts),
             })
+        # Surfacing a matching procedure is cheaper than making the model rediscover it:
+        # a few hundred tokens of known-good steps against several planning rounds, each
+        # of which costs a full generation on slow hardware.
+        skills = self.memory.recall_skills(text)
+        if skills:
+            rendered = "\n\n".join(
+                f"{skill['name']} (use when: {skill['when_to_use']})\n{skill['steps']}" for skill in skills
+            )
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Procedures learned earlier that may fit this request. Follow one only if it "
+                    "genuinely applies, and verify the result as usual:\n\n" + rendered
+                ),
+            })
         messages.extend(self._history_within_budget(session_id))
         context = ToolContext(session_id=session_id, cwd=(cwd or self.settings.home).resolve(), remote=remote, permission_callback=permission_callback)
         tool_schemas = self.tools.schemas(remote, text)

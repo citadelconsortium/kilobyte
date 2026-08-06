@@ -25,7 +25,7 @@ async def serve() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     log = logging.getLogger("kilobyte")
-    memory = MemoryStore(settings.database_path, settings.memory_message_limit, settings.memory_fact_limit)
+    memory = MemoryStore(settings.database_path, settings.memory_message_limit, settings.memory_fact_limit, settings.memory_skill_limit)
     resources = ResourceManager(settings)
     permissions = PermissionManager(settings.policy_path)
     tools = ToolRegistry(settings, memory, permissions)

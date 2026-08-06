@@ -52,6 +52,7 @@ class Settings:
     max_read_bytes: int = 2 * 1024 * 1024
     memory_message_limit: int = 10_000
     memory_fact_limit: int = 2_000
+    memory_skill_limit: int = 200
     reserve_memory_mb: int = 640
     home: Path = field(default_factory=current_home)
 
