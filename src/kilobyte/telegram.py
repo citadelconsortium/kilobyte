@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -18,12 +20,17 @@ class TelegramBridge:
     """Optional long-polling bridge; every message uses the daemon's same Agent/runtime."""
 
     CONFIG_POLL_SECONDS = 30
+    # How often the progress message is rewritten. Frequent enough that the sender can
+    # see it is alive, slow enough to stay clear of Telegram's edit rate limits.
+    PROGRESS_SECONDS = 8
 
     def __init__(self, config_path: Path, agent: Agent):
         self.config_path = config_path
         self.agent = agent
         self.offset = 0
         self.running = False
+        self._chat_locks: dict[int, asyncio.Lock] = {}
+        self._replies: set[asyncio.Task[None]] = set()
 
     def config(self) -> dict[str, Any] | None:
         try:
@@ -77,7 +84,7 @@ class TelegramBridge:
     async def send(self, token: str, chat_id: int, text: str, keyboard: dict[str, Any] | None = None) -> None:
         chunks = [text[start : start + 3900] for start in range(0, len(text) or 1, 3900)] or ["(empty response)"]
         for index, chunk in enumerate(chunks):
-            data: dict[str, Any] = {"chat_id": chat_id, "text": chunk or "(empty response)"}
+            data: dict[str, Any] = {"chat_id": chat_id, "text": chunk or "(empty response)", "parse_mode": "HTML"}
             # Attach the menu only to the final chunk so it appears once, at the end.
             if keyboard and index == len(chunks) - 1:
                 data["reply_markup"] = keyboard
@@ -85,7 +92,7 @@ class TelegramBridge:
 
     async def _send_progress(self, token: str, chat_id: int, text: str) -> int | None:
         try:
-            response = await asyncio.to_thread(self._call, token, "sendMessage", {"chat_id": chat_id, "text": text})
+            response = await asyncio.to_thread(self._call, token, "sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
             return int(response["result"]["message_id"])
         except Exception:
             return None
@@ -98,7 +105,7 @@ class TelegramBridge:
         try:
             await asyncio.to_thread(
                 self._call, token, "editMessageText",
-                {"chat_id": chat_id, "message_id": message_id, "text": text},
+                {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"},
             )
         except Exception:
             pass
@@ -124,43 +131,84 @@ class TelegramBridge:
         except asyncio.CancelledError:
             pass
 
+    def _start_reply(self, token: str, chat_id: int, text: str) -> None:
+        """Run one reply per chat off the poll loop.
+
+        Replies are serialised per chat so two questions cannot interleave in the same
+        conversation, while a slow answer in one chat never stops the bridge from
+        servicing commands, buttons, or another chat.
+        """
+        async def serialised() -> None:
+            lock = self._chat_locks.setdefault(chat_id, asyncio.Lock())
+            async with lock:
+                await self._reply(token, chat_id, text)
+
+        task = asyncio.create_task(serialised())
+        self._replies.add(task)
+        task.add_done_callback(self._replies.discard)
+
+    async def _tick_progress(self, token: str, chat_id: int, message_id: int | None, state: dict[str, Any]) -> None:
+        """Rewrite the progress message on a timer.
+
+        Driving it from agent events alone leaves it frozen on whatever happened last:
+        a step can run for minutes without emitting anything, so the sender sees
+        'step 1' indefinitely and assumes the bot is stuck. Telegram also rejects an
+        edit that would not change the text, so the elapsed counter doubles as the
+        thing that makes each edit distinct.
+        """
+        while True:
+            await asyncio.sleep(self.PROGRESS_SECONDS)
+            elapsed = int(time.monotonic() - state["started"])
+            minutes, seconds = divmod(elapsed, 60)
+            clock = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+            body = "\n".join([
+                f"⏳ <b>{html.escape(state['phase'])}</b>",
+                f"<i>running for {clock}</i>",
+                *([f"<i>used: {html.escape(', '.join(state['tools']))}</i>"] if state["tools"] else []),
+            ])
+            await self._edit_progress(token, chat_id, message_id, body)
+
     async def _reply(self, token: str, chat_id: int, text: str) -> None:
         typing = asyncio.create_task(self._keep_typing(token, chat_id))
         # A reply can take minutes here; a status message that is edited as work
         # progresses is the only way the sender can tell it is alive.
-        progress = await self._send_progress(token, chat_id, "◈ thinking…")
+        progress = await self._send_progress(token, chat_id, "⏳ <b>thinking</b>")
+        state: dict[str, Any] = {"phase": "thinking", "started": time.monotonic(), "tools": []}
+        ticker = asyncio.create_task(self._tick_progress(token, chat_id, progress, state))
         output: list[str] = []
-        tools: list[str] = []
         try:
             async for event in self.agent.run(str(text), f"telegram-{chat_id}", remote=True):
                 kind = event.get("type")
                 if kind == "token":
                     output.append(event.get("text", ""))
                 elif kind == "thinking":
-                    await self._edit_progress(token, chat_id, progress, f"◈ thinking · step {event.get('step')}…")
+                    state["phase"] = f"thinking · step {event.get('step')}"
                 elif kind == "tool_start":
                     name = str(event.get("name"))
-                    tools.append(name)
-                    await self._edit_progress(token, chat_id, progress, f"◈ running {name}…")
+                    state["tools"].append(name)
+                    state["phase"] = f"running {name}"
                 elif kind == "tool_end":
-                    mark = "✓" if event.get("ok") else "!"
-                    await self._edit_progress(token, chat_id, progress, f"{mark} {event.get('name')} — interpreting…")
+                    state["phase"] = f"read {event.get('name')} · interpreting"
                 elif kind == "error":
                     output.append(f"\n[error: {event.get('error')}]")
         except Exception as exc:
             # Silence looks identical to a hung bot, so always tell the user.
             log.exception("telegram request failed for chat %s", chat_id)
+            ticker.cancel()
             await self._delete(token, chat_id, progress)
-            await self.send(token, chat_id, f"Kilo hit an error: {exc}", self.MENU)
+            await self.send(token, chat_id, f"⚠️ Kilo hit an error:\n<code>{html.escape(str(exc))}</code>", self.MENU)
             return
         finally:
             typing.cancel()
+            ticker.cancel()
         await self._delete(token, chat_id, progress)
-        answer = "".join(output).strip()
-        if tools:
-            footer = "used: " + ", ".join(dict.fromkeys(tools))
-            answer = f"{answer}\n\n— {footer}" if answer else f"({footer}, no text returned)"
-        await self.send(token, chat_id, answer or "(no response)", self.MENU)
+        answer = html.escape("".join(output).strip())
+        took = int(time.monotonic() - state["started"])
+        footer = [f"<i>{took}s</i>"]
+        if state["tools"]:
+            footer.append(f"<i>{html.escape(', '.join(dict.fromkeys(state['tools'])))}</i>")
+        body = f"{answer}\n\n{' · '.join(footer)}" if answer else "(no response)"
+        await self.send(token, chat_id, body, self.MENU)
 
     async def _command(self, token: str, chat_id: int, command: str) -> bool:
         """Handle a slash command or menu button. Returns True when handled."""
@@ -252,7 +300,11 @@ class TelegramBridge:
                         continue
                     if text.startswith("/") and await self._command(token, chat_id, text):
                         continue
-                    await self._reply(token, chat_id, text)
+                    # Answering inline would block this loop for the whole generation,
+                    # which on slow hardware is minutes. Commands and button presses
+                    # arriving meanwhile would sit unread and look broken, so the reply
+                    # runs on its own task and polling continues.
+                    self._start_reply(token, chat_id, text)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -261,3 +313,5 @@ class TelegramBridge:
 
     def stop(self) -> None:
         self.running = False
+        for task in list(self._replies):
+            task.cancel()
