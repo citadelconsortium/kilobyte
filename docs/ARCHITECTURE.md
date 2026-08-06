@@ -51,6 +51,9 @@ the local model cannot run, Kilobyte says so rather than silently substituting a
 | `telegram.py` | Optional remote front end, read-only policy |
 | `mcp.py` | MCP client (stdio), external server lifecycle and tool namespacing |
 | `providers.py` | Optional hosted brains, used only on explicit escalation |
+| `brains.py` | Brain lifecycle: candidate → current → previous, with rollback |
+| `theme.py` | Palette, glyphs and box characters, with fallbacks |
+| `render.py` | Streaming Markdown rendering for assistant output |
 | `doctor.py` | Health checks and remediation hints |
 | `prompt.py` | System prompt and remote suffix |
 | `config.py` | Settings, paths, model identity |

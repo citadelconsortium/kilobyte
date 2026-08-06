@@ -129,10 +129,30 @@ brain that produced it, and with no providers file there is no cloud path at all
 live in a `0600` file, travel in a header over HTTPS only, and are never logged. Cloud
 escalation is not available over Telegram.
 
+## The brain
+
+Kilo runs one canonical `kilobyte.gguf`. A newly trained brain is a **candidate** and
+never overwrites the running one until it passes evaluation and is explicitly promoted;
+the previous brain is always kept for rollback.
+
+```bash
+kilo brain status                          # current / candidate / previous
+kilo brain stage output/kilobyte-candidate.gguf
+kilo brain promote                         # current → previous, candidate → current
+kilo brain rollback                        # restore previous after a bad promotion
+```
+
+Training the brain is a separate, reproducible pipeline in [`training/`](training/README.md):
+build and validate the dataset on CPU, fine-tune with QLoRA on Kaggle's GPU, convert and
+quantise to GGUF, evaluate against a fixed suite, then stage and promote. Nothing deploys
+automatically.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — how the pieces fit and why
 - [Build notes](docs/BUILD_NOTES.md) — what is in it, what changed, measured results, known limits
+- [Training pipeline](training/README.md) — how kilobyte.gguf is built
+- [Dataset spec](training/dataset_spec.md) — the SFT data format and distribution
 
 ## Telegram
 
