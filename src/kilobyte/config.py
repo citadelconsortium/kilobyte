@@ -82,6 +82,10 @@ class Settings:
         return self.config_dir / "mcp.json"
 
     @property
+    def providers_path(self) -> Path:
+        return self.config_dir / "providers.json"
+
+    @property
     def allowed_roots(self) -> tuple[Path, ...]:
         return (self.home.resolve(), Path("/tmp").resolve())
 

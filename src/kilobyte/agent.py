@@ -11,17 +11,20 @@ from .config import Settings
 from .context import CHARS_PER_TOKEN, as_tool_message
 from .memory import MemoryStore
 from .prompt import REMOTE_SUFFIX, SYSTEM_PROMPT
+from .providers import ProviderRegistry
 from .runtime import LlamaRuntime
+from .errors import SecurityError
 from .security import PermissionCallback
 from .tools import ToolContext, ToolRegistry
 
 
 class Agent:
-    def __init__(self, settings: Settings, runtime: LlamaRuntime, memory: MemoryStore, tools: ToolRegistry):
+    def __init__(self, settings: Settings, runtime: LlamaRuntime, memory: MemoryStore, tools: ToolRegistry, providers: ProviderRegistry | None = None):
         self.settings = settings
         self.runtime = runtime
         self.memory = memory
         self.tools = tools
+        self.providers = providers or ProviderRegistry(settings.providers_path)
 
     def _history_within_budget(self, session_id: str) -> list[dict[str, str]]:
         """Take the most recent turns that fit the history token allowance.
@@ -49,6 +52,7 @@ class Agent:
         cwd: Path | None = None,
         remote: bool = False,
         permission_callback: PermissionCallback | None = None,
+        provider: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         session_id = session_id or self.memory.new_session("telegram" if remote else "terminal", text[:80])
         self.memory.ensure_session(session_id, "telegram" if remote else "terminal")
@@ -86,8 +90,21 @@ class Agent:
         tool_schemas = self.tools.schemas(remote, text)
         seen_calls: set[tuple[str, str]] = set()
 
+        # Escalation is per request and only ever because it was asked for. A cloud
+        # provider is never selected automatically, and never as a fallback when the
+        # local model is slow or fails, so no prompt leaves the machine unbidden.
+        escalated = None
+        if provider is not None:
+            if remote:
+                raise SecurityError("cloud escalation is not available over Telegram")
+            escalated = self.providers.resolve(provider or None)
+            yield {"type": "brain", "location": "cloud", "label": escalated.label}
+        else:
+            yield {"type": "brain", "location": "local", "label": self.settings.model_path.stem}
+
         for step in range(self.settings.max_agent_steps):
-            await self.runtime.ensure_ready()
+            if escalated is None:
+                await self.runtime.ensure_ready()
             yield {"type": "thinking", "step": step + 1}
             payload = {
                 "model": "kilobyte",
@@ -106,7 +123,12 @@ class Agent:
             # suspended mid-iteration (a disconnected chat client), a bare `async for`
             # does not close the inner chat_stream generator, leaking the open HTTP
             # request to llama-server and its held inference slot indefinitely.
-            async with aclosing(self.runtime.chat_stream(payload)) as stream:
+            source = (
+                self.providers.stream(escalated, messages, self.settings.max_output_tokens)
+                if escalated is not None
+                else self.runtime.chat_stream(payload)
+            )
+            async with aclosing(source) as stream:
                 async for event in stream:
                     if "usage" in event:
                         usage = event["usage"]

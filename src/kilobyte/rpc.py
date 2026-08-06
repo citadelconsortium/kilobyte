@@ -68,6 +68,7 @@ class RPCServer:
                     Path(request.get("cwd") or self.agent.settings.home),
                     bool(request.get("remote", False)),
                     permission,
+                    request.get("provider"),
                 )
                 try:
                     async for event in run:

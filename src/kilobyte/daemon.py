@@ -9,6 +9,7 @@ from .config import Settings
 from .mcp import MCPRegistry
 from .memory import MemoryStore
 from .prompt import SYSTEM_PROMPT
+from .providers import ProviderRegistry
 from .resources import ResourceManager
 from .rpc import RPCServer
 from .runtime import LlamaRuntime
@@ -32,7 +33,8 @@ async def serve() -> None:
     mcp = MCPRegistry(settings.mcp_path)
     tools = ToolRegistry(settings, memory, permissions, mcp)
     runtime = LlamaRuntime(settings, resources)
-    agent = Agent(settings, runtime, memory, tools)
+    providers = ProviderRegistry(settings.providers_path)
+    agent = Agent(settings, runtime, memory, tools, providers)
     rpc = RPCServer(settings.socket_path, agent, runtime, resources, memory)
     telegram = TelegramBridge(settings.telegram_path, agent)
     stop_event = asyncio.Event()

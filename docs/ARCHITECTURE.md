@@ -50,6 +50,7 @@ the local model cannot run, Kilobyte says so rather than silently substituting a
 | `security.py` | Path policy, command policy, permission manager |
 | `telegram.py` | Optional remote front end, read-only policy |
 | `mcp.py` | MCP client (stdio), external server lifecycle and tool namespacing |
+| `providers.py` | Optional hosted brains, used only on explicit escalation |
 | `doctor.py` | Health checks and remediation hints |
 | `prompt.py` | System prompt and remote suffix |
 | `config.py` | Settings, paths, model identity |
@@ -122,6 +123,16 @@ to remote callers.
 
 Servers start before warmup so their schemas are part of the primed prefix rather than
 changing it on the first real request.
+
+## Cloud escalation
+
+`providers.py` can send a single request to a hosted model that speaks the OpenAI
+chat-completions shape. It is not a fallback path: local is the default, escalation
+applies only to a message the operator marked, it never triggers automatically or on
+local failure, the answering brain is reported in a `brain` event so the interface can
+label it, and with no providers file there is no cloud path at all. Keys are read from a
+`0600` file, sent in a header over HTTPS only, and never logged or placed on a command
+line. Remote (Telegram) callers cannot escalate.
 
 ## Security model
 

@@ -92,6 +92,43 @@ other outward action, results pass through the same compaction, a server that ha
 a request timeout instead of blocking Kilobyte, and one that fails to start is skipped
 rather than taking the daemon down. MCP tools are never offered over Telegram.
 
+## Cloud escalation (optional)
+
+The brain is the local model. When a request needs more power than it has, one message
+can be sent to a hosted model on purpose:
+
+```
+/cloud summarise this architecture and find the weak points
+/cloud openrouter <question>          # pick a specific provider
+```
+
+Configure providers in `/etc/kilobyte/providers.json` (see `config/providers.example.json`):
+
+```json
+{
+  "default": "openrouter",
+  "providers": {
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "sk-or-...",
+      "model": "anthropic/claude-sonnet-4.5"
+    }
+  }
+}
+```
+
+```bash
+sudo install -m 0600 -o kilobyte -g kilobyte config/providers.example.json /etc/kilobyte/providers.json
+sudo nano /etc/kilobyte/providers.json   # add your key
+```
+
+The rules are deliberate: local is always the default, escalation happens only for a
+message you prefixed with `/cloud` and lasts exactly that one message, there is no
+automatic fallback when the local model is slow or fails, the reply is labelled with the
+brain that produced it, and with no providers file there is no cloud path at all. Keys
+live in a `0600` file, travel in a header over HTTPS only, and are never logged. Cloud
+escalation is not available over Telegram.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — how the pieces fit and why

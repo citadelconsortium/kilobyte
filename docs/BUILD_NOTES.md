@@ -129,6 +129,26 @@ request timeout rather than blocking the daemon, and a server that fails to star
 skipped. MCP tools are not offered over Telegram. Tested against a real server subprocess
 over real pipes rather than a mock.
 
+### Telegram buttons looked dead and progress froze on step 1
+
+The poll loop answered inline. A generation takes minutes here, so every command and
+button press arriving meanwhile sat unread until it finished. Replies now run on their own
+task, serialised per chat, while polling continues. The progress message was also driven
+only by agent events, so a step that runs for minutes without emitting anything left it
+reading "step 1"; it is now rewritten on a timer with the phase, an elapsed clock and the
+tools used, and the clock keeps each edit distinct, which matters because Telegram rejects
+an edit that would not change the text.
+
+### Optional cloud escalation
+
+Added `providers.py` so a request can be sent to a hosted model deliberately, which the
+original specification forbade as an automatic fallback. The distinction is kept real
+rather than claimed: local remains the default, escalation is per message via `/cloud` and
+never sticky, there is no automatic escalation on slowness or failure, the answering brain
+is reported and displayed, and with no providers file there is no cloud path. Keys sit in a
+0600 file, travel in a header over HTTPS only, and are never logged. Telegram cannot
+escalate.
+
 ### Installer was not actually one line
 
 `install.sh` required a manual `pacman` step and a pre-existing service user. Both are now
@@ -151,9 +171,9 @@ reach, but a 1.7B brain still decides when to use them.
 
 ## Verification
 
-60 automated tests covering resources, runtime, agent loop, tools, context compaction,
-memory, skills, security, CLI, installation, Telegram and MCP (the last against a real
-server subprocess).
+68 automated tests covering resources, runtime, agent loop, tools, context compaction,
+memory, skills, security, CLI, installation, Telegram, MCP (against a real server
+subprocess) and cloud providers.
 
 A static analysis pass over the source found two genuine web-tool vulnerabilities, both
 confirmed by experiment before being fixed: urllib follows redirects, so validating only

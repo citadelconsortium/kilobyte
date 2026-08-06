@@ -39,6 +39,9 @@ class TerminalUI:
         self.client = client
         self.session_id: str | None = None
         self.model_name: str | None = None
+        # Set only for the next message, by /cloud. Escalation is never sticky, so a
+        # prompt cannot leave the machine because of something typed earlier.
+        self.provider: str | None = None
 
     async def banner(self) -> None:
         online = True
@@ -71,7 +74,7 @@ class TerminalUI:
         padded = list(info) + [""] * (len(KILO_ART) - len(info))
         for art_line, info_line in zip(KILO_ART, padded, strict=True):
             print(f"  {GREEN}{BOLD}{art_line}{RESET}   {info_line}")
-        print(f"\n  {DIM}/help · /status · /new · /clear · /exit · Ctrl-C{RESET}\n")
+        print(f"\n  {DIM}/help · /status · /new · /cloud · /clear · /exit{RESET}\n")
 
     @staticmethod
     def _width() -> int:
@@ -124,6 +127,8 @@ class TerminalUI:
     async def ask(self, text: str) -> None:
         reader, writer = await asyncio.open_unix_connection(self.client.socket_path)
         request = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd())}
+        if self.provider is not None:
+            request["provider"] = self.provider
         writer.write((__import__("json").dumps(request) + "\n").encode())
         await writer.drain()
         started = time.monotonic()
@@ -149,6 +154,11 @@ class TerminalUI:
                 if kind == "session":
                     self.session_id = event["session_id"]
                     self._phase(state, "thinking")
+                elif kind == "brain":
+                    # Always shown, so an escalated answer is never mistaken for local.
+                    state["model"] = event.get("label")
+                    if event.get("location") == "cloud":
+                        print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}☁ escalated to {event.get('label')}{RESET}")
                 elif kind == "thinking":
                     self._phase(state, f"thinking · step {event['step']}")
                     state["streaming"] = False
@@ -260,6 +270,7 @@ class TerminalUI:
                     ("/new", "start a separate session"),
                     ("/status", "show daemon, model and resource status"),
                     ("/clear", "clear the screen and redraw the banner"),
+                    ("/cloud", "send one message to a configured cloud model"),
                     ("/help", "show this list"),
                     ("/exit", "leave Kilobyte"),
                 ):
@@ -271,6 +282,32 @@ class TerminalUI:
             if text == "/clear":
                 sys.stdout.write("\033[2J\033[H")
                 await self.banner()
+                continue
+            if text.startswith("/cloud"):
+                parts = text.split(maxsplit=2)
+                named = parts[1] if len(parts) > 1 and not parts[1].startswith("/") else ""
+                question = parts[2] if len(parts) > 2 else ""
+                if not question and named and len(parts) == 2:
+                    named, question = "", parts[1]
+                if not question:
+                    self._panel_top("cloud", YELLOW)
+                    print(f"{YELLOW}│{RESET} usage: /cloud [provider] <question>")
+                    print(f"{YELLOW}│{RESET} {DIM}sends this one message to a configured cloud model{RESET}")
+                    print(f"{YELLOW}│{RESET} {DIM}local stays the default; nothing is escalated automatically{RESET}")
+                    self._panel_bottom(YELLOW)
+                    print()
+                    continue
+                self.provider = named or ""
+                self._panel_top("kilo", GREEN)
+                try:
+                    await self.ask(question)
+                except (ConnectionError, FileNotFoundError) as exc:
+                    print(f"{YELLOW}Daemon unavailable:{RESET} {exc}")
+                    self._panel_bottom(YELLOW, "not delivered")
+                    print()
+                finally:
+                    # Escalation lasts exactly one message.
+                    self.provider = None
                 continue
             if text == "/status":
                 try:
