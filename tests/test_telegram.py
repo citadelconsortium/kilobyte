@@ -62,13 +62,47 @@ class TelegramDeliveryTests(IsolatedAsyncioTestCase):
             bridge = TelegramBridge(path, FailingAgent())  # type: ignore[arg-type]
             sent: list[str] = []
 
-            async def capture(token, chat_id, text):
+            async def capture(token, chat_id, text, keyboard=None):
                 sent.append(text)
 
             bridge.send = capture  # type: ignore[method-assign]
             await bridge._reply("secret", 42, "hello")
             self.assertTrue(sent)
             self.assertIn("model unavailable", sent[0])
+
+
+class TelegramCommandTests(IsolatedAsyncioTestCase):
+    def _bridge(self, raw):
+        path = _config(raw, {"token": "secret", "allowed_chat_ids": [42]})
+        bridge = TelegramBridge(path, object())  # type: ignore[arg-type]
+        self.sent: list[str] = []
+
+        async def capture(token, chat_id, text, keyboard=None):
+            self.sent.append(text)
+
+        bridge.send = capture  # type: ignore[method-assign]
+        return bridge
+
+    async def test_start_and_help_explain_the_read_only_policy(self):
+        with tempfile.TemporaryDirectory() as raw:
+            bridge = self._bridge(raw)
+            for command in ("/start", "/help", "help"):
+                self.sent.clear()
+                self.assertTrue(await bridge._command("secret", 42, command))
+                self.assertIn("read-only", self.sent[0])
+
+    async def test_group_style_command_suffix_is_accepted(self):
+        """In groups Telegram delivers '/status@BotName'."""
+        with tempfile.TemporaryDirectory() as raw:
+            bridge = self._bridge(raw)
+            self.assertTrue(await bridge._command("secret", 42, "/help@KiloBot"))
+
+    async def test_unknown_command_is_not_swallowed(self):
+        """An unhandled slash command must fall through to the model, not vanish."""
+        with tempfile.TemporaryDirectory() as raw:
+            bridge = self._bridge(raw)
+            self.assertFalse(await bridge._command("secret", 42, "/summarise this"))
+            self.assertEqual(self.sent, [])
 
 
 if __name__ == "__main__":

@@ -33,8 +33,38 @@ Telegram naturally require a network.
 
 ## Commands
 
-`kilo`, `kilo chat`, `kilo status`, `kilo doctor`, `kilo resources`, `kilo model-info`,
-`kilo benchmark`, `kilo version`, `kilo logs`, `kilo restart`, and `kilo stop`.
+| Command | Purpose |
+|---|---|
+| `kilo` | Open the interactive TUI |
+| `kilo chat "…"` | Send one prompt and stream the answer |
+| `kilo status` | Daemon, model and resource status |
+| `kilo doctor` | Health checks (`--verify-model` also checks the SHA-256) |
+| `kilo resources` | Live resource profile |
+| `kilo model-info` | The one installed brain |
+| `kilo benchmark` | Measure a real inference |
+| `kilo logs` | Service logs |
+| `kilo start` / `stop` / `restart` | Service control |
+| `kilo version` | Framework version |
+
+Inside the TUI: `/help`, `/status`, `/new`, `/clear`, `/exit`. Ctrl-C cancels the running
+generation without leaving the session; a second one, or `/exit`, leaves.
+
+The interface streams tokens live and shows what Kilo is doing — the current action, how long
+it has been running, the model, each tool with its arguments and duration, and a closing summary
+with total time, time to first token, and which tools ran.
+
+## Tools
+
+`read_file`, `write_file`, `list_files`, `search_files`, `run_command`, `system_info`,
+`web_search`, `web_fetch`, `remember`, `recall`.
+
+Results are compacted before reaching the model, so a large directory listing or command output
+cannot displace the conversation.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — how the pieces fit and why
+- [Build notes](docs/BUILD_NOTES.md) — what is in it, what changed, measured results, known limits
 
 ## Telegram
 
@@ -51,10 +81,15 @@ JSON
 ```
 
 The bridge picks the file up within 30 seconds; no restart needed. Messages from any chat not in the
-list are ignored and logged. Telegram talks to the same persistent brain as the terminal but under a
-read-only policy: no terminal, file writes, privileges, services, packages, or process control. It
-shows a typing indicator while working, reports which tools ran, and always replies -- an error comes
-back as a message rather than silence.
+list are ignored and logged.
+
+In the chat you get `/start`, `/status`, `/new` and `/help` in Telegram's command menu, plus inline
+buttons for status, a new conversation and help. While Kilo works it keeps a typing indicator alive
+and edits a live progress line (`◈ running web_search…`), then replaces it with the answer and the
+tools that were used. Errors come back as a message — never silence.
+
+Telegram talks to the same persistent brain as the terminal but under a read-only policy: no
+terminal, file writes, privileges, services, packages, or process control.
 
 ## Security
 
