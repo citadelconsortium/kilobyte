@@ -1,29 +1,52 @@
+"""Kilo's terminal interface.
+
+A dependency-free streaming TUI. Presentation is kept out of the control flow: colours,
+glyphs and box characters live in ``theme``, Markdown formatting lives in ``render``, and
+the panel border is one reusable component here, so the interface reads as one system
+rather than formatting scattered through f-strings.
+
+The activity indicator shows a rotating human-readable phase (thinking, reasoning,
+working) with a spinner and an elapsed clock, redrawn on a timer so a slow step never
+looks frozen. It never shows a raw step counter and never exposes model reasoning.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import os
-import re
+import json
 import signal
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+from .render import MarkdownStream
 from .rpc import RPCClient
+from .theme import (
+    ACTIVITY_WORDS,
+    BOLD,
+    Box,
+    CLOUD,
+    CYAN,
+    DIM,
+    DOT_OFF,
+    DOT_ON,
+    FAIL,
+    GREEN,
+    OK,
+    PURPLE,
+    RESET,
+    SPINNER,
+    TOOL,
+    WARN,
+    YELLOW,
+    visible_len,
+)
 
+# Kept for callers that import colours from here (cli.py).
+__all__ = ["TerminalUI", "CYAN", "DIM", "GREEN", "RESET", "YELLOW"]
 
-CYAN = "\033[38;5;51m"
-PURPLE = "\033[38;5;141m"
-GREEN = "\033[38;5;84m"
-YELLOW = "\033[38;5;220m"
-DIM = "\033[2m"
-BOLD = "\033[1m"
-RESET = "\033[0m"
-
-# Escape sequences do not occupy columns; stripping them is how box padding is sized.
-_ANSI = re.compile(r"\033\[[0-9;]*m")
-
-# 3D shadow block "KILO" wordmark, rendered left of the live status panel.
+# 3D shadow-block "KILO" wordmark, shown beside the live status in the header.
 KILO_ART = (
     "██╗  ██╗██╗██╗      ██████╗ ",
     "██║ ██╔╝██║██║     ██╔═══██╗",
@@ -35,17 +58,44 @@ KILO_ART = (
 
 
 class TerminalUI:
-    """Dependency-free bordered, animated streaming TUI."""
-
-    SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
     def __init__(self, client: RPCClient):
         self.client = client
         self.session_id: str | None = None
         self.model_name: str | None = None
-        # Set only for the next message, by /cloud. Escalation is never sticky, so a
-        # prompt cannot leave the machine because of something typed earlier.
+        # Set only for the next message, by /cloud. Escalation is never sticky.
         self.provider: str | None = None
+
+    # ---- layout primitives -------------------------------------------------
+
+    @staticmethod
+    def _width() -> int:
+        cols = sys.stdout.get_terminal_size().columns if sys.stdout.isatty() else 80
+        return max(48, min(cols, 100))
+
+    def _rule_top(self, label: str, color: str) -> None:
+        width = self._width()
+        head = f"{Box.h} {label} "
+        print(f"{color}{Box.tl}{head}{Box.h * max(0, width - visible_len(head) - 2)}{Box.tr}{RESET}")
+
+    def _rule_bottom(self, color: str, note: str = "") -> None:
+        width = self._width()
+        tail = f" {note} {Box.h}" if note else ""
+        print(f"{color}{Box.bl}{Box.h * max(0, width - visible_len(tail) - 2)}{tail}{Box.br}{RESET}")
+
+    def _line(self, color: str, body: str) -> None:
+        """A single framed line, padded to the panel width."""
+        width = self._width()
+        pad = max(0, width - 4 - visible_len(body))
+        print(f"{color}{Box.v}{RESET} {body}{' ' * pad} {color}{Box.v}{RESET}")
+
+    def _panel(self, label: str, color: str, lines: list[str]) -> None:
+        self._rule_top(label, color)
+        for body in lines:
+            self._line(color, body)
+        self._rule_bottom(color)
+        print()
+
+    # ---- header ------------------------------------------------------------
 
     async def banner(self) -> None:
         online = True
@@ -62,218 +112,221 @@ class TerminalUI:
         except (ConnectionError, FileNotFoundError, OSError):
             online = False
 
-        dot = f"{GREEN}●{RESET}" if online else f"{YELLOW}●{RESET}"
+        dot = DOT_ON if online else DOT_OFF
         state = f"{GREEN}online{RESET}" if online else f"{YELLOW}offline{RESET}"
-        info = (
+        info = [
             f"{BOLD}{GREEN}KILOBYTE{RESET}  {dot} {state}",
             f"{DIM}local-first · one model · no cloud by default{RESET}",
             f"{DIM}brain   {RESET}{model_name}" if online else f"{YELLOW}sudo systemctl start kilobyte{RESET}",
             f"{DIM}context {RESET}{context_size}  {DIM}threads {RESET}{threads}  {DIM}gpu {RESET}{gpu_layers}" if online else "",
             f"{DIM}tools   {RESET}files · shell · web · memory · skills" if online else "",
             f"{DIM}made by 0v3r51ght{RESET}",
-        )
+        ]
         width = self._width()
         print()
-        print(f"  {GREEN}╭{'─' * (width - 4)}╮{RESET}")
-        # Pad rather than zip: a bare zip silently drops banner rows whenever the
-        # wordmark and the status column stop being the same height.
-        padded = list(info) + [""] * (len(KILO_ART) - len(info))
-        for art_line, info_line in zip(KILO_ART, padded, strict=True):
-            body = f"{GREEN}{BOLD}{art_line}{RESET}   {info_line}"
-            print(f"  {GREEN}│{RESET} {body}{' ' * max(0, width - 6 - self._visible(body))} {GREEN}│{RESET}")
+        print(f"  {GREEN}{Box.tl}{Box.h * (width - 4)}{Box.tr}{RESET}")
+        padded = info + [""] * (len(KILO_ART) - len(info))
+        for art, meta in zip(KILO_ART, padded, strict=True):
+            body = f"{GREEN}{BOLD}{art}{RESET}   {meta}"
+            pad = max(0, width - 6 - visible_len(body))
+            print(f"  {GREEN}{Box.v}{RESET} {body}{' ' * pad} {GREEN}{Box.v}{RESET}")
         hint = f"{DIM}/help  /status  /new  /cloud  /clear  /exit{RESET}"
-        print(f"  {GREEN}│{RESET} {hint}{' ' * max(0, width - 6 - self._visible(hint))} {GREEN}│{RESET}")
-        print(f"  {GREEN}╰{'─' * (width - 4)}╯{RESET}\n")
+        pad = max(0, width - 6 - visible_len(hint))
+        print(f"  {GREEN}{Box.v}{RESET} {hint}{' ' * pad} {GREEN}{Box.v}{RESET}")
+        print(f"  {GREEN}{Box.bl}{Box.h * (width - 4)}{Box.br}{RESET}\n")
 
-    @staticmethod
-    def _visible(text: str) -> int:
-        """Length as rendered, ignoring escape sequences, so padding lines up."""
-        return len(_ANSI.sub("", text))
+    # ---- activity indicator ------------------------------------------------
 
-    @staticmethod
-    def _width() -> int:
-        return max(48, min(os.get_terminal_size().columns if sys.stdout.isatty() else 80, 100))
-
-    def _panel_top(self, label: str, color: str) -> None:
-        width = self._width()
-        head = f"─ {label} "
-        print(f"{color}╭{head}{'─' * max(0, width - len(head) - 2)}╮{RESET}")
-
-    def _panel_bottom(self, color: str, note: str = "") -> None:
-        width = self._width()
-        tail = f" {note} ─" if note else ""
-        print(f"{color}╰{'─' * max(0, width - len(tail) - 2)}{tail}╯{RESET}")
+    async def _animate(self, state: dict[str, Any]) -> None:
+        """Redraw the activity line on a timer. The phase word rotates while the model
+        works, which reads as a live operator rather than a stuck counter."""
+        frame = 0
+        while True:
+            if state["streaming"]:
+                await asyncio.sleep(0.1)
+                continue
+            now = time.monotonic()
+            elapsed = now - state["started"]
+            glyph = SPINNER[frame % len(SPINNER)]
+            phase = state["phase"] or ACTIVITY_WORDS[(frame // 12) % len(ACTIVITY_WORDS)]
+            model = state.get("model") or "local brain"
+            sys.stdout.write(
+                f"\r\033[2K{GREEN}{Box.v}{RESET} {GREEN}{glyph}{RESET} {BOLD}{phase}{RESET}"
+                f" {DIM}{elapsed:0.0f}s · {model}{RESET}  {DIM}(ctrl-c to cancel){RESET}"
+            )
+            sys.stdout.flush()
+            frame += 1
+            await asyncio.sleep(0.1)
 
     async def _permission(self, event: dict[str, Any], writer: asyncio.StreamWriter) -> None:
         prompt = f"\n{YELLOW}Permission required [{event['risk']}]:{RESET} {event['detail']}\nAllow once? [y/N] "
         answer = await asyncio.to_thread(input, prompt)
-        writer.write((__import__("json").dumps({"type": "permission_response", "id": event["id"], "allow": answer.lower() in {"y", "yes"}}) + "\n").encode())
+        writer.write((json.dumps({"type": "permission_response", "id": event["id"], "allow": answer.lower() in {"y", "yes"}}) + "\n").encode())
         await writer.drain()
 
-    @staticmethod
-    def _phase(state: dict[str, Any], label: str) -> None:
-        """Switch the displayed action and restart its timer."""
-        state["phase"] = label
-        state["phase_started"] = time.monotonic()
+    # ---- the exchange ------------------------------------------------------
 
-    async def _animate(self, state: dict[str, Any]) -> None:
-        """Redraw the activity line on a timer so slow steps never look frozen."""
-        frame = 0
-        while True:
-            if state["streaming"]:
-                await asyncio.sleep(0.12)
-                frame += 1
-                continue
-            now = time.monotonic()
-            phase_elapsed = now - state["phase_started"]
-            total_elapsed = now - state["started"]
-            glyph = self.SPINNER[frame % len(self.SPINNER)]
-            model = state.get("model") or "local brain"
-            sys.stdout.write(
-                f"\r\033[2K{GREEN}│{RESET} {GREEN}{glyph}{RESET} {BOLD}{state['phase']}{RESET}"
-                f" {DIM}{phase_elapsed:0.1f}s · total {total_elapsed:0.0f}s · {model}{RESET}"
-                f"  {DIM}(ctrl-c to cancel){RESET}"
-            )
-            sys.stdout.flush()
-            frame += 1
-            await asyncio.sleep(0.12)
+    def _gutter(self, text: str) -> str:
+        """Prefix every line of already-formatted text with the panel border."""
+        return text.replace("\n", f"\n{GREEN}{Box.v}{RESET} ")
 
     async def ask(self, text: str) -> None:
         reader, writer = await asyncio.open_unix_connection(self.client.socket_path)
-        request = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd())}
+        request: dict[str, Any] = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd())}
         if self.provider is not None:
             request["provider"] = self.provider
-        writer.write((__import__("json").dumps(request) + "\n").encode())
+        writer.write((json.dumps(request) + "\n").encode())
         await writer.drain()
+
         started = time.monotonic()
-        state: dict[str, Any] = {
-            "phase": "connecting",
-            "started": started,
-            "phase_started": started,
-            "streaming": False,
-            "model": self.model_name,
-        }
+        state: dict[str, Any] = {"phase": "", "started": started, "streaming": False, "model": self.model_name}
         animator = asyncio.create_task(self._animate(state))
-        last_flush = started
-        pending = ""
-        printed = False
+        markdown = MarkdownStream()
+        printed = False       # true once the answer body has started printing
+        at_line_start = True  # cursor sits after a gutter, ready for content
         cancelled = False
         tool_started = started
         tools_used: list[str] = []
         first_token_at: float | None = None
+
+        def emit(formatted: str) -> None:
+            """Write formatted text into the panel, keeping the border gutter."""
+            nonlocal at_line_start
+            if not formatted:
+                return
+            sys.stdout.write(self._gutter(formatted))
+            at_line_start = formatted.endswith("\n")
+
         try:
             while raw := await reader.readline():
-                event = __import__("json").loads(raw)
+                event = json.loads(raw)
                 kind = event.get("type")
+
                 if kind == "session":
                     self.session_id = event["session_id"]
-                    self._phase(state, "thinking")
+                    state["phase"] = "thinking"
                 elif kind == "brain":
-                    # Always shown, so an escalated answer is never mistaken for local.
                     state["model"] = event.get("label")
                     if event.get("location") == "cloud":
-                        print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}☁ escalated to {event.get('label')}{RESET}")
+                        sys.stdout.write(f"\r\033[2K{GREEN}{Box.v}{RESET} {CLOUD} {YELLOW}escalated to {event.get('label')}{RESET}\n")
                 elif kind == "warming":
-                    self._phase(state, "waiting for the model cache to warm")
-                    print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}⏳ first run after a change: the prompt cache is warming{RESET}")
-                    print(f"{GREEN}│{RESET} {DIM}this happens once and can take a while on a slow CPU{RESET}")
+                    state["phase"] = "warming the model cache"
+                    sys.stdout.write(f"\r\033[2K{GREEN}{Box.v}{RESET} {YELLOW}first run after a change: warming the prompt cache, once-off{RESET}\n")
                 elif kind == "thinking":
-                    self._phase(state, f"thinking · step {event['step']}")
+                    # No step number: the animator's rotating word carries the sense of
+                    # progress, and a counter that only ever reached 1 read as stuck.
+                    state["phase"] = "thinking"
                     state["streaming"] = False
                 elif kind == "token":
                     if first_token_at is None:
                         first_token_at = time.monotonic()
                     if not printed:
                         state["streaming"] = True
-                        sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} ")
+                        sys.stdout.write(f"\r\033[2K{GREEN}{Box.v}{RESET} ")
                         printed = True
-                    pending += event.get("text", "")
-                    now = time.monotonic()
-                    if now - last_flush >= 0.05:
-                        sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
-                        sys.stdout.flush()
-                        pending = ""
-                        last_flush = now
+                        at_line_start = True
+                    emit(markdown.feed(event.get("text", "")))
+                    sys.stdout.flush()
                 elif kind == "tool_start":
-                    if pending:
-                        sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
-                        pending = ""
+                    emit(markdown.flush())
+                    if not at_line_start:
+                        sys.stdout.write("\n")
                     tool_started = time.monotonic()
                     tools_used.append(event["name"])
-                    self._phase(state, f"running {event['name']}")
+                    state["phase"] = f"running {event['name']}"
                     state["streaming"] = False
-                    arguments = event.get("arguments") or {}
-                    detail = ", ".join(f"{k}={str(v)[:40]}" for k, v in list(arguments.items())[:3])
-                    sys.stdout.write(
-                        f"\r\033[2K{GREEN}│{RESET} {PURPLE}◈{RESET} {BOLD}{event['name']}{RESET}"
-                        f"{(' ' + DIM + detail + RESET) if detail else ''}\n"
-                    )
+                    args = event.get("arguments") or {}
+                    detail = ", ".join(f"{k}={str(v)[:40]}" for k, v in list(args.items())[:3])
+                    sys.stdout.write(f"\r\033[2K{GREEN}{Box.v}{RESET} {TOOL} {BOLD}{event['name']}{RESET}{(' ' + DIM + detail + RESET) if detail else ''}\n")
                     sys.stdout.flush()
                     printed = False
+                    at_line_start = True
                 elif kind == "tool_end":
                     took = time.monotonic() - tool_started
-                    icon = f"{GREEN}✓{RESET}" if event.get("ok") else f"{YELLOW}!{RESET}"
-                    print(
-                        f"\r\033[2K{GREEN}│{RESET}   {icon} {DIM}{event['name']} · {took:0.1f}s · "
-                        f"{event.get('summary', '')[:140]}{RESET}"
-                    )
-                    self._phase(state, "interpreting result")
+                    icon = OK if event.get("ok") else WARN
+                    summary = str(event.get("summary", ""))[:140]
+                    print(f"\r\033[2K{GREEN}{Box.v}{RESET}   {icon} {DIM}{event['name']} · {took:0.1f}s · {summary}{RESET}")
+                    state["phase"] = "interpreting result"
                     state["streaming"] = False
                     printed = False
+                    at_line_start = True
                 elif kind == "permission":
-                    state["streaming"] = True  # pause the animator while we prompt
+                    state["streaming"] = True
                     await self._permission(event, writer)
-                    self._phase(state, "resuming")
                     state["streaming"] = False
                 elif kind == "error":
-                    print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}error:{RESET} {event.get('error')}")
-                    printed = False
+                    emit(markdown.flush())
+                    if not at_line_start:
+                        sys.stdout.write("\n")
+                    print(f"\r\033[2K{GREEN}{Box.v}{RESET} {FAIL} {YELLOW}{event.get('error')}{RESET}")
+                    at_line_start = True
                 elif kind == "done":
                     break
-            if pending:
-                sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
-            if printed:
-                sys.stdout.write(RESET)
+
+            emit(markdown.flush())
             sys.stdout.flush()
         except (asyncio.CancelledError, KeyboardInterrupt):
             cancelled = True
             raise
         finally:
             animator.cancel()
-            # Dropping the connection tells the daemon to close the agent run and
-            # release the model slot, so a cancel actually stops the work.
+            # Dropping the connection tells the daemon to close the run and free the slot.
             writer.close()
             try:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
-            # Only wipe the line when it still holds the spinner. Streamed tokens are
-            # written without a trailing newline, so clearing unconditionally erased the
-            # last line of the answer that was just printed.
-            if printed:
+            # Only clear the line when it still holds the spinner; clearing after streamed
+            # content would erase the answer's last line (which has no trailing newline).
+            if printed and not at_line_start:
                 sys.stdout.write(f"{RESET}\n")
+            elif printed:
+                sys.stdout.write(RESET)
             else:
                 sys.stdout.write("\r\033[2K")
             sys.stdout.flush()
             elapsed = time.monotonic() - started
             if cancelled:
-                self._panel_bottom(YELLOW, f"cancelled after {elapsed:0.1f}s")
+                self._rule_bottom(YELLOW, f"cancelled after {elapsed:0.0f}s")
             else:
-                parts = [f"{elapsed:0.1f}s"]
+                parts = [f"{elapsed:0.0f}s"]
                 if first_token_at is not None:
                     parts.append(f"first token {first_token_at - started:0.1f}s")
                 if tools_used:
                     parts.append(f"tools: {', '.join(dict.fromkeys(tools_used))}")
-                self._panel_bottom(GREEN, " · ".join(parts))
+                self._rule_bottom(GREEN, " · ".join(parts))
             print()
+
+    # ---- command loop ------------------------------------------------------
+
+    async def _run_ask(self, text: str) -> None:
+        """Run one exchange as a task so SIGINT cancels the generation, not the app."""
+        self._rule_top("kilo", GREEN)
+        task = asyncio.create_task(self.ask(text))
+        loop = asyncio.get_running_loop()
+        try:
+            loop.add_signal_handler(signal.SIGINT, task.cancel)
+        except (NotImplementedError, RuntimeError):
+            loop = None
+        try:
+            await task
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            print(f"{DIM}generation cancelled — type /exit to leave{RESET}\n")
+        except (ConnectionError, FileNotFoundError) as exc:
+            print(f"{YELLOW}Daemon unavailable:{RESET} {exc}\nTry: sudo systemctl restart kilobyte")
+            self._rule_bottom(YELLOW, "not delivered")
+            print()
+        finally:
+            if loop is not None:
+                loop.remove_signal_handler(signal.SIGINT)
 
     async def run(self) -> None:
         await self.banner()
         while True:
             try:
-                self._panel_top("you", CYAN)
-                text = (await asyncio.to_thread(input, f"{CYAN}│{RESET} ")).strip()
-                self._panel_bottom(CYAN)
+                self._rule_top("you", CYAN)
+                text = (await asyncio.to_thread(input, f"{CYAN}{Box.v}{RESET} ")).strip()
+                self._rule_bottom(CYAN)
             except (EOFError, KeyboardInterrupt):
                 print(f"\n{DIM}bye{RESET}")
                 return
@@ -284,25 +337,17 @@ class TerminalUI:
                 return
             if text == "/new":
                 self.session_id = None
-                self._panel_top("session", PURPLE)
-                print(f"{PURPLE}│{RESET} {DIM}new session started; previous context is not carried over{RESET}")
-                self._panel_bottom(PURPLE)
-                print()
+                self._panel("session", PURPLE, [f"{DIM}new session started; previous context is not carried over{RESET}"])
                 continue
             if text == "/help":
-                self._panel_top("commands", PURPLE)
-                for name, description in (
-                    ("/new", "start a separate session"),
-                    ("/status", "show daemon, model and resource status"),
-                    ("/clear", "clear the screen and redraw the banner"),
-                    ("/cloud", "send one message to a configured cloud model"),
-                    ("/help", "show this list"),
-                    ("/exit", "leave Kilobyte"),
-                ):
-                    print(f"{PURPLE}│{RESET} {GREEN}{name:<8}{RESET} {DIM}{description}{RESET}")
-                print(f"{PURPLE}│{RESET} {DIM}anything else is sent to the local brain{RESET}")
-                self._panel_bottom(PURPLE)
-                print()
+                self._panel("commands", PURPLE, [
+                    f"{GREEN}{'/new':<8}{RESET} {DIM}start a separate session{RESET}",
+                    f"{GREEN}{'/status':<8}{RESET} {DIM}show daemon, model and resource status{RESET}",
+                    f"{GREEN}{'/cloud':<8}{RESET} {DIM}send one message to a configured cloud model{RESET}",
+                    f"{GREEN}{'/clear':<8}{RESET} {DIM}clear the screen and redraw the header{RESET}",
+                    f"{GREEN}{'/exit':<8}{RESET} {DIM}leave Kilobyte{RESET}",
+                    f"{DIM}anything else is sent to the local brain · ctrl-c cancels{RESET}",
+                ])
                 continue
             if text == "/clear":
                 sys.stdout.write("\033[2J\033[H")
@@ -312,70 +357,36 @@ class TerminalUI:
                 parts = text.split(maxsplit=2)
                 named = parts[1] if len(parts) > 1 and not parts[1].startswith("/") else ""
                 question = parts[2] if len(parts) > 2 else ""
-                if not question and named and len(parts) == 2:
+                if not question and len(parts) == 2:
                     named, question = "", parts[1]
                 if not question:
-                    self._panel_top("cloud", YELLOW)
-                    print(f"{YELLOW}│{RESET} usage: /cloud [provider] <question>")
-                    print(f"{YELLOW}│{RESET} {DIM}sends this one message to a configured cloud model{RESET}")
-                    print(f"{YELLOW}│{RESET} {DIM}local stays the default; nothing is escalated automatically{RESET}")
-                    self._panel_bottom(YELLOW)
-                    print()
+                    self._panel("cloud", YELLOW, [
+                        "usage: /cloud [provider] <question>",
+                        f"{DIM}sends this one message to a configured cloud model{RESET}",
+                        f"{DIM}local stays the default; nothing escalates automatically{RESET}",
+                    ])
                     continue
                 self.provider = named or ""
-                self._panel_top("kilo", GREEN)
                 try:
-                    await self.ask(question)
-                except (ConnectionError, FileNotFoundError) as exc:
-                    print(f"{YELLOW}Daemon unavailable:{RESET} {exc}")
-                    self._panel_bottom(YELLOW, "not delivered")
-                    print()
+                    await self._run_ask(question)
                 finally:
-                    # Escalation lasts exactly one message.
                     self.provider = None
                 continue
             if text == "/status":
                 try:
                     status = await self.client.request("status")
                 except (ConnectionError, FileNotFoundError, OSError) as exc:
-                    self._panel_top("status", YELLOW)
-                    print(f"{YELLOW}│{RESET} daemon unavailable: {exc}")
-                    self._panel_bottom(YELLOW)
-                    print()
+                    self._panel("status", YELLOW, [f"daemon unavailable: {exc}"])
                     continue
                 profile = status.get("profile") or {}
                 memory = status.get("memory") or {}
-                self._panel_top("status", PURPLE)
-                for label, value in (
-                    ("healthy", status.get("healthy")),
-                    ("uptime", f"{status.get('uptime_seconds', 0)}s"),
-                    ("model", Path(str(status.get("model", ""))).name),
-                    ("context", f"{profile.get('context_size')}   threads {profile.get('threads')}   gpu layers {profile.get('gpu_layers')}"),
-                    ("memory", f"{profile.get('available_mb')} MiB available of {profile.get('total_mb')} MiB"),
-                    ("sessions", f"{memory.get('sessions')} sessions · {memory.get('messages')} messages · {memory.get('facts')} facts"),
-                ):
-                    print(f"{PURPLE}│{RESET} {DIM}{label:<9}{RESET}{value}")
-                self._panel_bottom(PURPLE)
-                print()
+                self._panel("status", PURPLE, [
+                    f"{DIM}{'healthy':<9}{RESET}{status.get('healthy')}",
+                    f"{DIM}{'uptime':<9}{RESET}{status.get('uptime_seconds', 0)}s",
+                    f"{DIM}{'model':<9}{RESET}{Path(str(status.get('model', ''))).name}",
+                    f"{DIM}{'context':<9}{RESET}{profile.get('context_size')}   threads {profile.get('threads')}   gpu {profile.get('gpu_layers')}",
+                    f"{DIM}{'memory':<9}{RESET}{profile.get('available_mb')} MiB of {profile.get('total_mb')} MiB free",
+                    f"{DIM}{'sessions':<9}{RESET}{memory.get('sessions')} · {memory.get('messages')} messages · {memory.get('facts')} facts",
+                ])
                 continue
-            self._panel_top("kilo", GREEN)
-            # Run the exchange as a task so SIGINT can cancel just this generation
-            # instead of tearing down the whole interface.
-            task = asyncio.create_task(self.ask(text))
-            loop = asyncio.get_running_loop()
-            try:
-                loop.add_signal_handler(signal.SIGINT, task.cancel)
-            except (NotImplementedError, RuntimeError):
-                loop = None
-            try:
-                await task
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                # First ctrl-c cancels this generation only; the session continues.
-                print(f"{DIM}generation cancelled — type /exit to leave{RESET}\n")
-            except (ConnectionError, FileNotFoundError) as exc:
-                print(f"{YELLOW}Daemon unavailable:{RESET} {exc}\nTry: sudo systemctl restart kilobyte")
-                self._panel_bottom(YELLOW, "not delivered")
-                print()
-            finally:
-                if loop is not None:
-                    loop.remove_signal_handler(signal.SIGINT)
+            await self._run_ask(text)
