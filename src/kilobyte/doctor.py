@@ -52,7 +52,8 @@ def run_checks(settings: Settings, verify_model: bool = False) -> list[Check]:
     cpu_detail = f"{profile.cpu_arch}/{profile.cpu_level}, {profile.threads} inference threads"
     if not fast_cpu:
         cpu_detail += " — no AVX2, using llama.cpp's generic backend; expect slow inference"
-    checks.append(Check("CPU", True, cpu_detail, warning=not fast_cpu))
+    # ok=False with warning=True renders as WARN and still passes the overall run.
+    checks.append(Check("CPU", fast_cpu, cpu_detail, warning=not fast_cpu))
     disk = shutil.disk_usage(settings.data_dir if settings.data_dir.exists() else settings.data_dir.parent)
     checks.append(Check("disk space", disk.free > 2 * 1024**3, f"{disk.free // (1024**3)} GiB free", warning=disk.free <= 4 * 1024**3))
     for name, path in (("data directory", settings.data_dir), ("runtime directory", settings.runtime_dir), ("log directory", settings.log_dir)):
