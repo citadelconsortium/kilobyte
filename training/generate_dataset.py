@@ -108,7 +108,7 @@ def build(rng: random.Random, count: int) -> list[dict]:
 
     def linux_like(pool, domain):
         prompt, cmd1, res1, cmd2, res2, final = rng.choice(pool)
-        msgs = [u(prompt), a(f"Checking that now, Sir.", [{"name": "run_command", "arguments": {"command": cmd1}}]), t("run_command", res1)]
+        msgs = [u(prompt), a("Checking that now, Sir.", [{"name": "run_command", "arguments": {"command": cmd1}}]), t("run_command", res1)]
         if cmd2:
             msgs += [a("Looking closer.", [{"name": "run_command", "arguments": {"command": cmd2}}]), t("run_command", res2)]
         msgs.append(a(final))

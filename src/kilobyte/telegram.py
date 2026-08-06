@@ -140,6 +140,14 @@ class TelegramBridge:
         """
         async def serialised() -> None:
             lock = self._chat_locks.setdefault(chat_id, asyncio.Lock())
+            # There is one inference slot, so a message sent while another is generating
+            # waits. Acknowledge immediately when that happens, otherwise the wait reads
+            # as the bot ignoring the message.
+            if lock.locked():
+                try:
+                    await self.send(token, chat_id, "⏳ <i>queued — finishing the previous request first</i>")
+                except Exception:
+                    pass
             async with lock:
                 await self._reply(token, chat_id, text)
 
