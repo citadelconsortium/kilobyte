@@ -2,10 +2,13 @@
 set -euo pipefail
 
 # One-line installer entry point:
-# curl -fsSL https://raw.githubusercontent.com/0v3r51ght/kilobyte/main/scripts/install-online.sh | bash
+# curl -fsSL https://raw.githubusercontent.com/citadelconsortium/kilobyte/main/scripts/install-online.sh | bash
 REPO_URL="${KILOBYTE_REPO_URL:-https://github.com/citadelconsortium/kilobyte}"
 BRANCH="${KILOBYTE_BRANCH:-main}"
-OWNER="${KILOBYTE_USER:-${SUDO_USER:-${USER:-kilobyte}}}"
+# Must match install.sh and install-model.sh: the service account, not the person
+# running the installer. Using the login user here left the service running as one
+# account with its data owned by another.
+OWNER="${KILOBYTE_USER:-kilobyte}"
 WORK="$(mktemp -d -t kilobyte-install.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
