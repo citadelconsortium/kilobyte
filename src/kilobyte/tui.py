@@ -128,17 +128,32 @@ class TerminalUI:
             f"{DIM}made by 0v3r51ght{RESET}",
         ]
         width = self._width()
+        art_width = visible_len(KILO_ART[0])
+        # On a terminal too narrow for the wordmark and status side by side, stack the
+        # status below the wordmark instead of letting it overflow the border.
+        stacked = width - 4 < art_width + 3 + 24
         print()
         print(f"  {GREEN}{Box.tl}{Box.h * (width - 4)}{Box.tr}{RESET}")
-        padded = info + [""] * (len(KILO_ART) - len(info))
-        for art, meta in zip(KILO_ART, padded, strict=True):
-            body = f"{GREEN}{BOLD}{art}{RESET}   {meta}"
+        if stacked:
+            rows = [f"{GREEN}{BOLD}{art}{RESET}" for art in KILO_ART] + [m for m in info if m]
+        else:
+            padded = info + [""] * (len(KILO_ART) - len(info))
+            rows = [f"{GREEN}{BOLD}{art}{RESET}   {self._fit(meta, width - 6 - art_width - 3)}" for art, meta in zip(KILO_ART, padded, strict=True)]
+        rows.append(f"{DIM}/help  /status  /new  /cloud  /clear  /exit{RESET}")
+        for body in rows:
             pad = max(0, width - 6 - visible_len(body))
             print(f"  {GREEN}{Box.v}{RESET} {body}{' ' * pad} {GREEN}{Box.v}{RESET}")
-        hint = f"{DIM}/help  /status  /new  /cloud  /clear  /exit{RESET}"
-        pad = max(0, width - 6 - visible_len(hint))
-        print(f"  {GREEN}{Box.v}{RESET} {hint}{' ' * pad} {GREEN}{Box.v}{RESET}")
         print(f"  {GREEN}{Box.bl}{Box.h * (width - 4)}{Box.br}{RESET}\n")
+
+    @staticmethod
+    def _fit(text: str, limit: int) -> str:
+        """Truncate styled text to a visible width, so it never overruns a border."""
+        if visible_len(text) <= limit or limit <= 1:
+            return text
+        # Strip styling and cut; the trailing reset keeps later output clean.
+        from .theme import _ANSI
+        plain = _ANSI.sub("", text)
+        return plain[: max(0, limit - 1)] + "…"
 
     # ---- activity indicator ------------------------------------------------
 
