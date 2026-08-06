@@ -50,7 +50,7 @@ class LlamaRuntime:
             "--jinja",
             "--metrics",
             "--no-webui",
-            "--chat-template-kwargs", '{"enable_thinking":false}',
+            "--reasoning", "off",
         ]
 
     async def start(self, timeout: float = 240.0) -> None:
@@ -132,7 +132,6 @@ class LlamaRuntime:
             "model": "kilobyte",
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Reply with just: ready"}],
             "max_tokens": 4,
-            "chat_template_kwargs": {"enable_thinking": False},
         }
         async for _ in self.chat_stream(payload):
             pass

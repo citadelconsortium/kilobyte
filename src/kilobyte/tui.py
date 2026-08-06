@@ -20,6 +20,15 @@ DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+# Block-letter "KILO" wordmark, five rows tall, rendered left of the live status panel.
+KILO_ART = (
+    "█   █  █████  █       ███ ",
+    "█  █     █    █      █   █",
+    "███      █    █      █   █",
+    "█  █     █    █      █   █",
+    "█   █  █████  █████   ███ ",
+)
+
 
 class TerminalUI:
     """Dependency-free bordered, animated streaming TUI."""
@@ -30,13 +39,33 @@ class TerminalUI:
         self.client = client
         self.session_id: str | None = None
 
-    @staticmethod
-    def banner() -> None:
-        print(f"{GREEN}{BOLD}╭──────────────────────────────────────────────────────────────╮{RESET}")
-        print(f"{GREEN}{BOLD}│  K I L O B Y T E   ·   LOCAL BRAIN   ·   ONLINE             │{RESET}")
-        print(f"{GREEN}{BOLD}│  Made by 0v3r51ght                                      ◉   │{RESET}")
-        print(f"{GREEN}{BOLD}╰──────────────────────────────────────────────────────────────╯{RESET}")
-        print(f"{DIM}  One local model · private by default · /help · /exit · Ctrl-C{RESET}\n")
+    async def banner(self) -> None:
+        online = True
+        model_name = "unknown"
+        context_size = threads = gpu_layers = "?"
+        try:
+            status = await self.client.request("status")
+            profile = status.get("profile") or {}
+            model_name = Path(str(status.get("model", ""))).stem or "unknown"
+            context_size = profile.get("context_size", "?")
+            threads = profile.get("threads", "?")
+            gpu_layers = profile.get("gpu_layers", "?")
+        except (ConnectionError, FileNotFoundError, OSError):
+            online = False
+
+        dot = f"{GREEN}●{RESET}" if online else f"{YELLOW}●{RESET}"
+        state = f"{GREEN}online{RESET}" if online else f"{YELLOW}offline — sudo systemctl start kilobyte{RESET}"
+        info = (
+            f"{BOLD}{GREEN}KILOBYTE{RESET}  {dot} {state}",
+            f"{DIM}local-first AI · one model · no cloud fallback{RESET}",
+            f"{DIM}model{RESET}    {model_name}" if online else "",
+            f"{DIM}context{RESET}  {context_size}   {DIM}threads{RESET} {threads}   {DIM}gpu{RESET} {gpu_layers}" if online else "",
+            f"{DIM}made by 0v3r51ght{RESET}",
+        )
+        print()
+        for art_line, info_line in zip(KILO_ART, info):
+            print(f"  {GREEN}{BOLD}{art_line}{RESET}   {info_line}")
+        print(f"\n  {DIM}/help · /status · /new · /clear · /exit · Ctrl-C{RESET}\n")
 
     async def _permission(self, event: dict[str, Any], writer: asyncio.StreamWriter) -> None:
         prompt = f"\n{YELLOW}Permission required [{event['risk']}]:{RESET} {event['detail']}\nAllow once? [y/N] "
@@ -99,7 +128,7 @@ class TerminalUI:
             print(f"\n{GREEN}╰─ response complete ──────────────────────────────────────────╯{RESET}\n")
 
     async def run(self) -> None:
-        self.banner()
+        await self.banner()
         while True:
             try:
                 text = (await asyncio.to_thread(input, f"{GREEN}╭─ you ›{RESET} ")).strip()
@@ -125,7 +154,7 @@ class TerminalUI:
                 continue
             if text == "/clear":
                 sys.stdout.write("\033[2J\033[H")
-                self.banner()
+                await self.banner()
                 continue
             if text == "/status":
                 try:

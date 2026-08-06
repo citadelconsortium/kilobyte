@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,6 @@ class Agent:
                 "temperature": 0.6,
                 "top_p": 0.95,
                 "max_tokens": self.settings.max_output_tokens,
-                "chat_template_kwargs": {"enable_thinking": False},
             }
             if tool_schemas:
                 payload["tools"] = tool_schemas
@@ -60,23 +60,28 @@ class Agent:
             content_parts: list[str] = []
             calls: dict[int, dict[str, Any]] = {}
             usage: dict[str, Any] | None = None
-            async for event in self.runtime.chat_stream(payload):
-                if "usage" in event:
-                    usage = event["usage"]
-                    continue
-                delta = event.get("delta", {})
-                content = delta.get("content")
-                if content:
-                    content_parts.append(content)
-                    yield {"type": "token", "text": content}
-                for call in delta.get("tool_calls") or []:
-                    index = int(call.get("index", 0))
-                    target = calls.setdefault(index, {"id": call.get("id") or uuid.uuid4().hex, "type": "function", "function": {"name": "", "arguments": ""}})
-                    if call.get("id"):
-                        target["id"] = call["id"]
-                    function = call.get("function") or {}
-                    target["function"]["name"] += function.get("name") or ""
-                    target["function"]["arguments"] += function.get("arguments") or ""
+            # aclosing is required here: if this generator itself gets closed while
+            # suspended mid-iteration (a disconnected chat client), a bare `async for`
+            # does not close the inner chat_stream generator, leaking the open HTTP
+            # request to llama-server and its held inference slot indefinitely.
+            async with aclosing(self.runtime.chat_stream(payload)) as stream:
+                async for event in stream:
+                    if "usage" in event:
+                        usage = event["usage"]
+                        continue
+                    delta = event.get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        content_parts.append(content)
+                        yield {"type": "token", "text": content}
+                    for call in delta.get("tool_calls") or []:
+                        index = int(call.get("index", 0))
+                        target = calls.setdefault(index, {"id": call.get("id") or uuid.uuid4().hex, "type": "function", "function": {"name": "", "arguments": ""}})
+                        if call.get("id"):
+                            target["id"] = call["id"]
+                        function = call.get("function") or {}
+                        target["function"]["name"] += function.get("name") or ""
+                        target["function"]["arguments"] += function.get("arguments") or ""
 
             content = "".join(content_parts)
             tool_calls = [calls[index] for index in sorted(calls)]
