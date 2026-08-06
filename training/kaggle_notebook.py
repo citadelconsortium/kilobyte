@@ -181,8 +181,22 @@ def convert_and_quantise(config: dict, merged: Path, out_dir: Path) -> Path:
     return out
 
 
+def install_deps() -> None:
+    """Install the training stack on Kaggle before importing it.
+
+    Kaggle's GPU image ships torch and transformers but not Unsloth/TRL, so the run must
+    install them first. Skipped off Kaggle, where the environment is managed by the caller.
+    """
+    if not Path("/kaggle/working").is_dir():
+        return
+    log("installing training dependencies")
+    packages = ["unsloth", "trl", "peft", "accelerate", "bitsandbytes", "datasets", "sentencepiece", "protobuf"]
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--upgrade", *packages], check=True)
+
+
 def main() -> int:
     config = load_config()
+    install_deps()
     data_dir, out_dir = resolve_paths(config)
     merged = train(config, data_dir, out_dir)
     candidate = convert_and_quantise(config, merged, out_dir)
