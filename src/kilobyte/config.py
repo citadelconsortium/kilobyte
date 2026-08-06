@@ -39,7 +39,16 @@ class Settings:
     max_agent_steps: int = 10
     max_output_tokens: int = 1024
     command_timeout: int = 120
+    # Bytes captured from a subprocess; what actually reaches the model is bounded
+    # separately by max_tool_result_tokens, because bytes are a poor proxy for context
+    # cost -- dense output tokenises at about two characters per token.
     max_tool_output: int = 64 * 1024
+    # Token allowance for a single tool result in the prompt. Kept well under the
+    # context window so a large result cannot displace the conversation.
+    max_tool_result_tokens: int = 900
+    # Allowance for replayed conversation, so old turns cannot crowd out the current
+    # task or the tool results it depends on.
+    max_history_tokens: int = 1800
     max_read_bytes: int = 2 * 1024 * 1024
     memory_message_limit: int = 10_000
     memory_fact_limit: int = 2_000
