@@ -62,14 +62,20 @@ class RPCServer:
                     raw_answer = await asyncio.wait_for(reader.readline(), timeout=300)
                     answer = json.loads(raw_answer)
                     return answer.get("type") == "permission_response" and answer.get("id") == permission_id and bool(answer.get("allow"))
-                async for event in self.agent.run(
+                run = self.agent.run(
                     str(request.get("text", "")),
                     request.get("session_id"),
                     Path(request.get("cwd") or self.agent.settings.home),
                     bool(request.get("remote", False)),
                     permission,
-                ):
-                    await self._send(writer, event)
+                )
+                try:
+                    async for event in run:
+                        await self._send(writer, event)
+                finally:
+                    # A disconnected client (Ctrl-C, killed process) must not leave the
+                    # generator running and holding llama-server's single inference slot.
+                    await run.aclose()
             else:
                 await self._send(writer, {"type": "error", "error": f"unknown command: {command}"})
         except Exception as exc:
