@@ -7,6 +7,7 @@ import signal
 from .agent import Agent
 from .config import Settings
 from .memory import MemoryStore
+from .prompt import SYSTEM_PROMPT
 from .resources import ResourceManager
 from .rpc import RPCServer
 from .runtime import LlamaRuntime
@@ -39,6 +40,15 @@ async def serve() -> None:
 
     telegram_task: asyncio.Task[None] | None = None
     monitor_task: asyncio.Task[None] | None = None
+    warmup_task: asyncio.Task[None] | None = None
+
+    async def warmup() -> None:
+        try:
+            log.info("warming model cache with system prompt")
+            await runtime.warmup(SYSTEM_PROMPT)
+            log.info("model cache warm")
+        except Exception:
+            log.exception("warmup failed; first real request will pay the cold cost")
 
     async def monitor_runtime() -> None:
         while not stop_event.is_set():
@@ -55,11 +65,12 @@ async def serve() -> None:
         await rpc.start()
         telegram_task = asyncio.create_task(telegram.run(), name="telegram-bridge")
         monitor_task = asyncio.create_task(monitor_runtime(), name="runtime-monitor")
+        warmup_task = asyncio.create_task(warmup(), name="model-warmup")
         log.info("ready on %s", settings.socket_path)
         await stop_event.wait()
     finally:
         telegram.stop()
-        tasks = [task for task in (telegram_task, monitor_task) if task]
+        tasks = [task for task in (telegram_task, monitor_task, warmup_task) if task]
         for task in tasks:
             task.cancel()
         if tasks:

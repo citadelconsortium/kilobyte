@@ -7,12 +7,22 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KILO_USER="${KILOBYTE_USER:-${SUDO_USER:-kilobyte}}"
-if ! id "$KILO_USER" >/dev/null 2>&1; then
-    echo "User does not exist: $KILO_USER" >&2
-    exit 1
+
+if command -v pacman >/dev/null; then
+    pacman -Sy --needed --noconfirm llama-cpp python curl sqlite ripgrep
 fi
 command -v python >/dev/null
 command -v llama-server >/dev/null || { echo "Install llama-cpp first." >&2; exit 1; }
+
+if ! id "$KILO_USER" >/dev/null 2>&1; then
+    if [[ "$KILO_USER" == "kilobyte" ]]; then
+        echo "Creating service user: $KILO_USER"
+        useradd --system --create-home --shell /usr/bin/nologin "$KILO_USER"
+    else
+        echo "User does not exist: $KILO_USER" >&2
+        exit 1
+    fi
+fi
 
 echo "Installing Kilobyte application..."
 install -d -m 0755 /opt/kilobyte/app /etc/kilobyte

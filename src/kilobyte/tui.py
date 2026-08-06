@@ -50,7 +50,8 @@ class TerminalUI:
         writer.write((__import__("json").dumps(request) + "\n").encode())
         await writer.drain()
         spinner = 0
-        last_flush = time.monotonic()
+        started = time.monotonic()
+        last_flush = started
         pending = ""
         printed = False
         try:
@@ -60,7 +61,8 @@ class TerminalUI:
                 if kind == "session":
                     self.session_id = event["session_id"]
                 elif kind == "thinking":
-                    sys.stdout.write(f"\r\033[2K{GREEN}{self.SPINNER[spinner % len(self.SPINNER)]}{RESET} {DIM}planning step {event['step']}…{RESET}")
+                    elapsed = time.monotonic() - started
+                    sys.stdout.write(f"\r\033[2K{GREEN}{self.SPINNER[spinner % len(self.SPINNER)]}{RESET} {DIM}planning step {event['step']}… {elapsed:0.0f}s{RESET}")
                     sys.stdout.flush()
                     spinner += 1
                 elif kind == "token":
@@ -113,7 +115,30 @@ class TerminalUI:
                 print(f"{DIM}New session started.{RESET}")
                 continue
             if text == "/help":
-                print("/new  start a separate session\n/exit leave Kilobyte\nNormal text talks to the local brain.")
+                print(
+                    "/new    start a separate session\n"
+                    "/status show daemon, model and resource status\n"
+                    "/clear  clear the screen\n"
+                    "/exit   leave Kilobyte\n"
+                    "Normal text talks to the local brain."
+                )
+                continue
+            if text == "/clear":
+                sys.stdout.write("\033[2J\033[H")
+                self.banner()
+                continue
+            if text == "/status":
+                try:
+                    status = await self.client.request("status")
+                except (ConnectionError, FileNotFoundError, OSError) as exc:
+                    print(f"{YELLOW}Daemon unavailable:{RESET} {exc}")
+                    continue
+                profile = status.get("profile") or {}
+                print(f"{DIM}healthy{RESET}   {status.get('healthy')}")
+                print(f"{DIM}uptime{RESET}    {status.get('uptime_seconds', 0)}s")
+                print(f"{DIM}model{RESET}     {status.get('model')}")
+                print(f"{DIM}context{RESET}   {profile.get('context_size')}  {DIM}threads{RESET} {profile.get('threads')}  {DIM}gpu layers{RESET} {profile.get('gpu_layers')}")
+                print(f"{DIM}memory{RESET}    {status.get('memory')}\n")
                 continue
             print(f"{GREEN}╭─ kilo ›{RESET} ", end="", flush=True)
             try:

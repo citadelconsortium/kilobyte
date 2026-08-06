@@ -8,7 +8,17 @@ There is no cloud fallback, training path, adapter, or model picker.
 ## Install on Arch Linux
 
 ```bash
-sudo pacman -S --needed llama-cpp python curl sqlite ripgrep
+curl -fsSL https://raw.githubusercontent.com/citadelconsortium/kilobyte/main/scripts/install-online.sh | bash
+kilo
+```
+
+The installer handles system dependencies (`llama-cpp`, `python`, `curl`, `sqlite`, `ripgrep`), creates the
+service user if needed, installs the app, downloads and verifies the model, and starts the service. Nothing
+else is required.
+
+To install manually from a local checkout instead:
+
+```bash
 sudo ./scripts/install.sh
 sudo KILOBYTE_USER=kilobyte ./scripts/install-model.sh
 sudo systemctl start kilobyte
@@ -34,8 +44,3 @@ Telegram is disabled unless `/etc/kilobyte/telegram.json` exists with a bot toke
 Paths are normalized and restricted to the service user's home and `/tmp`; commands never use a shell;
 runtime, output, and file sizes are bounded; private-network web fetches are blocked; writes and elevated or
 destructive commands require an interactive one-shot permission; Telegram cannot mutate or administer the host.
-# One-line install (after the repository is published)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/0v3r51ght/kilobyte/main/scripts/install-online.sh | bash
-```

@@ -125,6 +125,18 @@ class LlamaRuntime:
                 return False
         return await asyncio.to_thread(check)
 
+    async def warmup(self, system_prompt: str) -> None:
+        """Pre-populate llama-server's KV cache with the system prompt so a user's first real
+        message doesn't pay the full cold prompt-processing cost on slow CPUs."""
+        payload = {
+            "model": "kilobyte",
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Reply with just: ready"}],
+            "max_tokens": 4,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        async for _ in self.chat_stream(payload):
+            pass
+
     async def metadata(self) -> dict[str, Any]:
         def fetch() -> dict[str, Any]:
             try:
