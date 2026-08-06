@@ -184,7 +184,8 @@ class TelegramBridge:
                 elif kind == "warming":
                     state["phase"] = "waiting for the model cache to warm (one-off)"
                 elif kind == "thinking":
-                    state["phase"] = f"thinking · step {event.get('step')}"
+                    # No step number: it read as stuck. The timer conveys progress.
+                    state["phase"] = "thinking"
                 elif kind == "tool_start":
                     name = str(event.get("name"))
                     state["tools"].append(name)
