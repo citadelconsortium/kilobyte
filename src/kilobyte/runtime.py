@@ -148,13 +148,30 @@ class LlamaRuntime:
             return False
 
     def _cache_filename(self, system_prompt: str, tools: list[dict[str, Any]] | None) -> str:
-        """Key the saved cache to the exact prefix, so changing the prompt or the tool
-        set re-warms instead of restoring a stale prefix that would never be reused."""
+        """Key the saved cache to everything that makes it valid.
+
+        The prompt and tool set define the token prefix. The context size has to be in
+        here too: the install is portable, so the same data directory can be carried to
+        a machine with different memory, where the resource manager picks a different
+        context and a slot saved under the old one is not restorable.
+        """
         digest = hashlib.sha256()
         digest.update(system_prompt.encode())
         digest.update(json.dumps(tools or [], sort_keys=True).encode())
         digest.update(str(self.settings.model_path).encode())
+        digest.update(str(self.profile.context_size if self.profile else 0).encode())
         return f"kilobyte-prefix-{digest.hexdigest()[:16]}.bin"
+
+    def _prune_cache(self, keep: str) -> None:
+        """Each saved slot is large and machine-specific; carrying the install between
+        machines would otherwise leave a stale one behind for every context size used."""
+        cache_dir = self.settings.data_dir / "kv-cache"
+        try:
+            for stale in cache_dir.glob("kilobyte-prefix-*.bin"):
+                if stale.name != keep:
+                    stale.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     async def warmup(self, system_prompt: str, tools: list[dict[str, Any]] | None = None) -> None:
         """Make the prefix real requests use resident in the KV cache.
@@ -178,7 +195,8 @@ class LlamaRuntime:
             payload["tool_choice"] = "auto"
         async for _ in self.chat_stream(payload):
             pass
-        await asyncio.to_thread(self._slot_action, "save", filename)
+        if await asyncio.to_thread(self._slot_action, "save", filename):
+            await asyncio.to_thread(self._prune_cache, filename)
 
     async def metadata(self) -> dict[str, Any]:
         def fetch() -> dict[str, Any]:

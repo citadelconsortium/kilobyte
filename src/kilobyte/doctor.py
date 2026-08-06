@@ -46,7 +46,13 @@ def run_checks(settings: Settings, verify_model: bool = False) -> list[Check]:
     else:
         enough, reason = resources.enough_to_start(profile)
     checks.append(Check("memory safety", enough, reason))
-    checks.append(Check("CPU", True, f"{profile.cpu_arch}/{profile.cpu_level}, {profile.threads} inference threads"))
+    # Flag the slow path explicitly: this install is portable, and a machine without
+    # AVX2 falls back to llama.cpp's generic CPU backend, which is many times slower.
+    fast_cpu = profile.cpu_level in {"avx2", "avx512"}
+    cpu_detail = f"{profile.cpu_arch}/{profile.cpu_level}, {profile.threads} inference threads"
+    if not fast_cpu:
+        cpu_detail += " — no AVX2, using llama.cpp's generic backend; expect slow inference"
+    checks.append(Check("CPU", True, cpu_detail, warning=not fast_cpu))
     disk = shutil.disk_usage(settings.data_dir if settings.data_dir.exists() else settings.data_dir.parent)
     checks.append(Check("disk space", disk.free > 2 * 1024**3, f"{disk.free // (1024**3)} GiB free", warning=disk.free <= 4 * 1024**3))
     for name, path in (("data directory", settings.data_dir), ("runtime directory", settings.runtime_dir), ("log directory", settings.log_dir)):

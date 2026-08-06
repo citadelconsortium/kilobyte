@@ -119,7 +119,18 @@ class ResourceManager:
         else:
             gpu_layers = 99 if gpu and not virtual_gpu and (render_access or nvidia_access) else 0
         flags = _cpu_flags()
-        level = "avx2" if "avx2" in flags else "avx" if "avx" in flags else "sse4" if "sse4_1" in flags else "baseline"
+        # Reported so the operator can see which llama.cpp CPU backend this machine gets;
+        # the install is portable and the difference between these is large.
+        if "avx512f" in flags:
+            level = "avx512"
+        elif "avx2" in flags:
+            level = "avx2"
+        elif "avx" in flags:
+            level = "avx"
+        elif "sse4_1" in flags:
+            level = "sse4"
+        else:
+            level = "baseline"
         return ResourceProfile(
             total_mb=total // MIB,
             available_mb=available // MIB,
