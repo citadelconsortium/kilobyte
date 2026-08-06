@@ -63,9 +63,31 @@ async def serve() -> None:
                     await runtime.start()
                 except Exception:
                     log.exception("model runtime restart failed; retrying")
+    async def start_when_memory_allows() -> None:
+        """Wait out transient memory pressure instead of crash-looping.
+
+        Available memory can dip below the start threshold for reasons unrelated to Kilo
+        (a large file copy, another process spiking). Exiting immediately made systemd
+        restart the daemon in a tight loop and, because the bridge lives in the daemon,
+        took Telegram down with it. Retrying with backoff lets a temporary dip clear;
+        only a persistent shortage eventually gives up to systemd."""
+        from .errors import RuntimeUnavailable
+
+        delay = 5
+        for _attempt in range(12):
+            try:
+                await runtime.start()
+                return
+            except RuntimeUnavailable as exc:
+                log.warning("model runtime not startable yet (%s); retry in %ss", exc, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60)
+        # Persistent shortage: start once more and let the exception propagate to systemd.
+        await runtime.start()
+
     try:
         log.info("starting persistent model runtime")
-        await runtime.start()
+        await start_when_memory_allows()
         # Started before warmup so any server tools are part of the prefix that gets
         # primed and cached, rather than changing it on the first real request.
         await mcp.start()

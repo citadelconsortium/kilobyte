@@ -46,9 +46,9 @@ def authenticate():
         api.authenticate()
     except Exception as exc:
         raise SystemExit(
-            "Kaggle authentication failed. Provide credentials via KAGGLE_USERNAME and "
-            "KAGGLE_KEY, or ~/.kaggle/kaggle.json (mode 600). The token itself is never "
-            "read from or written to this repository."
+            "Kaggle authentication failed. Provide credentials via KAGGLE_API_TOKEN (for a "
+            "KGAT_ token), or KAGGLE_USERNAME and KAGGLE_KEY, or ~/.kaggle/kaggle.json (mode "
+            "600). The token itself is never read from or written to this repository."
         ) from exc
     return api
 

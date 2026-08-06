@@ -39,10 +39,16 @@ The pipeline uses the official Kaggle API. Provide credentials the supported way
 in code, notebooks, git, or the dataset:
 
 ```bash
+# Newer KGAT_-prefixed token (kaggle.com → Settings → Account → API):
+export KAGGLE_API_TOKEN=KGAT_...
+# or the classic pair:
 export KAGGLE_USERNAME=your-username
-export KAGGLE_KEY=your-key        # from kaggle.com → Account → Create New API Token
+export KAGGLE_KEY=your-key
 # or place kaggle.json at ~/.kaggle/kaggle.json with mode 600
 ```
+
+A `KGAT_` token must go in `KAGGLE_API_TOKEN`, not in `kaggle.json` — that is the most
+common cause of a 401.
 
 `kaggle_run.py` verifies authentication before submitting anything and never prints the
 key.
