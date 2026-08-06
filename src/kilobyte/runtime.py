@@ -35,9 +35,15 @@ class LlamaRuntime:
         return f"http://{self.settings.llama_host}:{self.settings.llama_port}"
 
     def command(self, profile: ResourceProfile) -> list[str]:
+        # Persist slot KV cache to disk so a warmed prefix survives restarts instead of
+        # being reprocessed from scratch, and let partially matching prefixes be reused.
+        slot_cache = self.settings.data_dir / "kv-cache"
+        slot_cache.mkdir(parents=True, exist_ok=True)
         return [
             self.settings.llama_binary,
             "--model", str(self.settings.model_path),
+            "--slot-save-path", str(slot_cache),
+            "--cache-reuse", "256",
             "--host", self.settings.llama_host,
             "--port", str(self.settings.llama_port),
             "--ctx-size", str(profile.context_size),

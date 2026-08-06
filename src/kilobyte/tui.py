@@ -40,6 +40,7 @@ class TerminalUI:
     def __init__(self, client: RPCClient):
         self.client = client
         self.session_id: str | None = None
+        self.model_name: str | None = None
 
     async def banner(self) -> None:
         online = True
@@ -49,6 +50,7 @@ class TerminalUI:
             status = await self.client.request("status")
             profile = status.get("profile") or {}
             model_name = Path(str(status.get("model", ""))).stem or "unknown"
+            self.model_name = model_name
             context_size = profile.get("context_size", "?")
             threads = profile.get("threads", "?")
             gpu_layers = profile.get("gpu_layers", "?")
@@ -90,6 +92,12 @@ class TerminalUI:
         writer.write((__import__("json").dumps({"type": "permission_response", "id": event["id"], "allow": answer.lower() in {"y", "yes"}}) + "\n").encode())
         await writer.drain()
 
+    @staticmethod
+    def _phase(state: dict[str, Any], label: str) -> None:
+        """Switch the displayed action and restart its timer."""
+        state["phase"] = label
+        state["phase_started"] = time.monotonic()
+
     async def _animate(self, state: dict[str, Any]) -> None:
         """Redraw the activity line on a timer so slow steps never look frozen."""
         frame = 0
@@ -98,10 +106,14 @@ class TerminalUI:
                 await asyncio.sleep(0.12)
                 frame += 1
                 continue
-            elapsed = time.monotonic() - state["started"]
+            now = time.monotonic()
+            phase_elapsed = now - state["phase_started"]
+            total_elapsed = now - state["started"]
             glyph = self.SPINNER[frame % len(self.SPINNER)]
+            model = state.get("model") or "local brain"
             sys.stdout.write(
-                f"\r\033[2K{GREEN}│{RESET} {GREEN}{glyph}{RESET} {DIM}{state['phase']} · {elapsed:0.0f}s{RESET}"
+                f"\r\033[2K{GREEN}│{RESET} {GREEN}{glyph}{RESET} {BOLD}{state['phase']}{RESET}"
+                f" {DIM}{phase_elapsed:0.1f}s · total {total_elapsed:0.0f}s · {model}{RESET}"
                 f"  {DIM}(ctrl-c to cancel){RESET}"
             )
             sys.stdout.flush()
@@ -114,23 +126,34 @@ class TerminalUI:
         writer.write((__import__("json").dumps(request) + "\n").encode())
         await writer.drain()
         started = time.monotonic()
-        state: dict[str, Any] = {"phase": "connecting", "started": started, "streaming": False}
+        state: dict[str, Any] = {
+            "phase": "connecting",
+            "started": started,
+            "phase_started": started,
+            "streaming": False,
+            "model": self.model_name,
+        }
         animator = asyncio.create_task(self._animate(state))
         last_flush = started
         pending = ""
         printed = False
         cancelled = False
+        tool_started = started
+        tools_used: list[str] = []
+        first_token_at: float | None = None
         try:
             while raw := await reader.readline():
                 event = __import__("json").loads(raw)
                 kind = event.get("type")
                 if kind == "session":
                     self.session_id = event["session_id"]
-                    state["phase"] = "thinking"
+                    self._phase(state, "thinking")
                 elif kind == "thinking":
-                    state["phase"] = f"thinking · step {event['step']}"
+                    self._phase(state, f"thinking · step {event['step']}")
                     state["streaming"] = False
                 elif kind == "token":
+                    if first_token_at is None:
+                        first_token_at = time.monotonic()
                     if not printed:
                         state["streaming"] = True
                         sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} ")
@@ -146,20 +169,32 @@ class TerminalUI:
                     if pending:
                         sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
                         pending = ""
-                    state["phase"] = f"running {event['name']}"
+                    tool_started = time.monotonic()
+                    tools_used.append(event["name"])
+                    self._phase(state, f"running {event['name']}")
                     state["streaming"] = False
-                    sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} {PURPLE}◈{RESET} {DIM}{event['name']}…{RESET}\n")
+                    arguments = event.get("arguments") or {}
+                    detail = ", ".join(f"{k}={str(v)[:40]}" for k, v in list(arguments.items())[:3])
+                    sys.stdout.write(
+                        f"\r\033[2K{GREEN}│{RESET} {PURPLE}◈{RESET} {BOLD}{event['name']}{RESET}"
+                        f"{(' ' + DIM + detail + RESET) if detail else ''}\n"
+                    )
                     sys.stdout.flush()
                     printed = False
                 elif kind == "tool_end":
+                    took = time.monotonic() - tool_started
                     icon = f"{GREEN}✓{RESET}" if event.get("ok") else f"{YELLOW}!{RESET}"
-                    print(f"\r\033[2K{GREEN}│{RESET} {icon} {DIM}{event['name']}: {event.get('summary', '')[:160]}{RESET}")
-                    state["phase"] = "interpreting result"
+                    print(
+                        f"\r\033[2K{GREEN}│{RESET}   {icon} {DIM}{event['name']} · {took:0.1f}s · "
+                        f"{event.get('summary', '')[:140]}{RESET}"
+                    )
+                    self._phase(state, "interpreting result")
                     state["streaming"] = False
                     printed = False
                 elif kind == "permission":
                     state["streaming"] = True  # pause the animator while we prompt
                     await self._permission(event, writer)
+                    self._phase(state, "resuming")
                     state["streaming"] = False
                 elif kind == "error":
                     print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}error:{RESET} {event.get('error')}")
@@ -188,7 +223,12 @@ class TerminalUI:
             if cancelled:
                 self._panel_bottom(YELLOW, f"cancelled after {elapsed:0.1f}s")
             else:
-                self._panel_bottom(GREEN, f"done in {elapsed:0.1f}s")
+                parts = [f"{elapsed:0.1f}s"]
+                if first_token_at is not None:
+                    parts.append(f"first token {first_token_at - started:0.1f}s")
+                if tools_used:
+                    parts.append(f"tools: {', '.join(dict.fromkeys(tools_used))}")
+                self._panel_bottom(GREEN, " · ".join(parts))
             print()
 
     async def run(self) -> None:
