@@ -102,6 +102,11 @@ class Agent:
         else:
             yield {"type": "brain", "location": "local", "label": self.settings.model_path.stem}
 
+        if escalated is None and getattr(self.runtime, "warming", False):
+            # Say so up front: the request will sit behind warmup for the single slot,
+            # which on slow hardware is minutes, and silence there reads as a hang.
+            yield {"type": "warming"}
+
         for step in range(self.settings.max_agent_steps):
             if escalated is None:
                 await self.runtime.ensure_ready()

@@ -181,6 +181,8 @@ class TelegramBridge:
                 kind = event.get("type")
                 if kind == "token":
                     output.append(event.get("text", ""))
+                elif kind == "warming":
+                    state["phase"] = "waiting for the model cache to warm (one-off)"
                 elif kind == "thinking":
                     state["phase"] = f"thinking · step {event.get('step')}"
                 elif kind == "tool_start":

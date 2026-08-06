@@ -30,6 +30,10 @@ class LlamaRuntime:
         self._log_handle: Any = None
         self._lock = asyncio.Lock()
         self.cache_restored = False
+        # Warmup holds the single inference slot for as long as the prefix takes to
+        # process. Requests arriving meanwhile queue behind it, so callers need to be
+        # able to say so rather than appearing to hang and then timing out.
+        self.warming = False
 
     @property
     def base_url(self) -> str:
@@ -184,6 +188,7 @@ class LlamaRuntime:
         if await asyncio.to_thread(self._slot_action, "restore", filename):
             self.cache_restored = True
             return
+        self.warming = True
         payload: dict[str, Any] = {
             "model": "kilobyte",
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Reply with just: ready"}],
@@ -192,8 +197,12 @@ class LlamaRuntime:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
-        async for _ in self.chat_stream(payload):
-            pass
+        try:
+            async for _ in self.chat_stream(payload):
+                pass
+        finally:
+            self.warming = False
+        self.warming = False
         if await asyncio.to_thread(self._slot_action, "save", filename):
             await asyncio.to_thread(self._prune_cache, filename)
 
@@ -218,7 +227,9 @@ class LlamaRuntime:
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
             )
-            return urllib.request.urlopen(request, timeout=600)
+            # Generous: on a CPU-only host a request can legitimately sit behind warmup
+            # for the single slot before its own generation even starts.
+            return urllib.request.urlopen(request, timeout=2400)
 
         try:
             response = await asyncio.to_thread(open_request)
@@ -257,5 +268,6 @@ class LlamaRuntime:
             "healthy": None,
             "uptime_seconds": int(time.monotonic() - self.started_at) if running and self.started_at else 0,
             "model": str(self.settings.model_path),
+            "warming": self.warming,
             "profile": self.profile.to_dict() if self.profile else None,
         }

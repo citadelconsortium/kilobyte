@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import signal
 import sys
 import time
@@ -18,6 +19,9 @@ YELLOW = "\033[38;5;220m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
+
+# Escape sequences do not occupy columns; stripping them is how box padding is sized.
+_ANSI = re.compile(r"\033\[[0-9;]*m")
 
 # 3D shadow block "KILO" wordmark, rendered left of the live status panel.
 KILO_ART = (
@@ -62,19 +66,29 @@ class TerminalUI:
         state = f"{GREEN}online{RESET}" if online else f"{YELLOW}offline{RESET}"
         info = (
             f"{BOLD}{GREEN}KILOBYTE{RESET}  {dot} {state}",
-            f"{DIM}local-first AI · one model · no cloud{RESET}",
-            f"{DIM}model{RESET}    {model_name}" if online else f"{YELLOW}sudo systemctl start kilobyte{RESET}",
-            f"{DIM}context{RESET}  {context_size}   {DIM}threads{RESET} {threads}   {DIM}gpu{RESET} {gpu_layers}" if online else "",
-            "",
+            f"{DIM}local-first · one model · no cloud by default{RESET}",
+            f"{DIM}brain   {RESET}{model_name}" if online else f"{YELLOW}sudo systemctl start kilobyte{RESET}",
+            f"{DIM}context {RESET}{context_size}  {DIM}threads {RESET}{threads}  {DIM}gpu {RESET}{gpu_layers}" if online else "",
+            f"{DIM}tools   {RESET}files · shell · web · memory · skills" if online else "",
             f"{DIM}made by 0v3r51ght{RESET}",
         )
+        width = self._width()
         print()
+        print(f"  {GREEN}╭{'─' * (width - 4)}╮{RESET}")
         # Pad rather than zip: a bare zip silently drops banner rows whenever the
         # wordmark and the status column stop being the same height.
         padded = list(info) + [""] * (len(KILO_ART) - len(info))
         for art_line, info_line in zip(KILO_ART, padded, strict=True):
-            print(f"  {GREEN}{BOLD}{art_line}{RESET}   {info_line}")
-        print(f"\n  {DIM}/help · /status · /new · /cloud · /clear · /exit{RESET}\n")
+            body = f"{GREEN}{BOLD}{art_line}{RESET}   {info_line}"
+            print(f"  {GREEN}│{RESET} {body}{' ' * max(0, width - 6 - self._visible(body))} {GREEN}│{RESET}")
+        hint = f"{DIM}/help  /status  /new  /cloud  /clear  /exit{RESET}"
+        print(f"  {GREEN}│{RESET} {hint}{' ' * max(0, width - 6 - self._visible(hint))} {GREEN}│{RESET}")
+        print(f"  {GREEN}╰{'─' * (width - 4)}╯{RESET}\n")
+
+    @staticmethod
+    def _visible(text: str) -> int:
+        """Length as rendered, ignoring escape sequences, so padding lines up."""
+        return len(_ANSI.sub("", text))
 
     @staticmethod
     def _width() -> int:
@@ -159,6 +173,10 @@ class TerminalUI:
                     state["model"] = event.get("label")
                     if event.get("location") == "cloud":
                         print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}☁ escalated to {event.get('label')}{RESET}")
+                elif kind == "warming":
+                    self._phase(state, "waiting for the model cache to warm")
+                    print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}⏳ first run after a change: the prompt cache is warming{RESET}")
+                    print(f"{GREEN}│{RESET} {DIM}this happens once and can take a while on a slow CPU{RESET}")
                 elif kind == "thinking":
                     self._phase(state, f"thinking · step {event['step']}")
                     state["streaming"] = False
@@ -229,7 +247,14 @@ class TerminalUI:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
-            sys.stdout.write("\r\033[2K")
+            # Only wipe the line when it still holds the spinner. Streamed tokens are
+            # written without a trailing newline, so clearing unconditionally erased the
+            # last line of the answer that was just printed.
+            if printed:
+                sys.stdout.write(f"{RESET}\n")
+            else:
+                sys.stdout.write("\r\033[2K")
+            sys.stdout.flush()
             elapsed = time.monotonic() - started
             if cancelled:
                 self._panel_bottom(YELLOW, f"cancelled after {elapsed:0.1f}s")
