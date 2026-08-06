@@ -36,8 +36,25 @@ Telegram naturally require a network.
 `kilo`, `kilo chat`, `kilo status`, `kilo doctor`, `kilo resources`, `kilo model-info`,
 `kilo benchmark`, `kilo version`, `kilo logs`, `kilo restart`, and `kilo stop`.
 
-Telegram is disabled unless `/etc/kilobyte/telegram.json` exists with a bot token and an explicit
-`allowed_chat_ids` list. Telegram uses the exact same persistent brain but a stricter read-only tool policy.
+## Telegram
+
+Telegram is disabled until `/etc/kilobyte/telegram.json` exists with a real bot token and a non-empty
+`allowed_chat_ids`. Any of those missing keeps it off, and the reason is written to the log.
+
+```bash
+# 1. create a bot with @BotFather and copy the token
+# 2. get your numeric chat id (message @userinfobot)
+sudo install -m 0600 -o kilobyte -g kilobyte /dev/null /etc/kilobyte/telegram.json
+sudo tee /etc/kilobyte/telegram.json >/dev/null <<'JSON'
+{ "token": "123456:ABC...", "allowed_chat_ids": [123456789] }
+JSON
+```
+
+The bridge picks the file up within 30 seconds; no restart needed. Messages from any chat not in the
+list are ignored and logged. Telegram talks to the same persistent brain as the terminal but under a
+read-only policy: no terminal, file writes, privileges, services, packages, or process control. It
+shows a typing indicator while working, reports which tools ran, and always replies -- an error comes
+back as a message rather than silence.
 
 ## Security
 
