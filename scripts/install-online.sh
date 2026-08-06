@@ -3,7 +3,7 @@ set -euo pipefail
 
 # One-line installer entry point:
 # curl -fsSL https://raw.githubusercontent.com/0v3r51ght/kilobyte/main/scripts/install-online.sh | bash
-REPO_URL="${KILOBYTE_REPO_URL:-https://github.com/0v3r51ght/kilobyte}"
+REPO_URL="${KILOBYTE_REPO_URL:-https://github.com/citadelconsortium/kilobyte}"
 BRANCH="${KILOBYTE_BRANCH:-main}"
 OWNER="${KILOBYTE_USER:-${SUDO_USER:-${USER:-kilobyte}}}"
 WORK="$(mktemp -d -t kilobyte-install.XXXXXX)"
