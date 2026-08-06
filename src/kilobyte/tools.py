@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+import asyncio
+import html
+import ipaddress
+import json
+import os
+import platform
+import re
+import shutil
+import socket
+import subprocess
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Awaitable, Callable
+
+from .config import Settings
+from .errors import SecurityError, ToolError
+from .memory import MemoryStore
+from .security import CommandPolicy, PathPolicy, PermissionCallback, PermissionManager, Risk
+
+
+@dataclass(slots=True)
+class ToolContext:
+    session_id: str
+    cwd: Path
+    remote: bool = False
+    permission_callback: PermissionCallback | None = None
+
+
+ToolHandler = Callable[[dict[str, Any], ToolContext], Awaitable[Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDefinition:
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    handler: ToolHandler
+
+    def openai_schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
+        }
+
+
+def _object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required or [],
+        "additionalProperties": False,
+    }
+
+
+class ToolRegistry:
+    def __init__(self, settings: Settings, memory: MemoryStore, permissions: PermissionManager):
+        self.settings = settings
+        self.memory = memory
+        self.permissions = permissions
+        self.paths = PathPolicy(settings.allowed_roots)
+        self.commands = CommandPolicy()
+        self._tools: dict[str, ToolDefinition] = {}
+        self._register_defaults()
+
+    def register(self, tool: ToolDefinition) -> None:
+        self._tools[tool.name] = tool
+
+    def schemas(self, remote: bool = False, request: str | None = None) -> list[dict[str, Any]]:
+        blocked = {"write_file", "run_command"} if remote else set()
+        selected = set(self._tools)
+        if request is not None:
+            text = request.casefold()
+            def mentions(term: str) -> bool:
+                return term in text if " " in term else re.search(rf"\b{re.escape(term)}\b", text) is not None
+
+            routes = {
+                "read_file": ("read", "open", "show file", "view file"),
+                "list_files": ("list", "directory", "folder", "downloads", "files in"),
+                "search_files": ("grep", "ripgrep", "search file", "find in", "repository", "codebase"),
+                "write_file": ("write", "create", "edit", "modify", "save", "patch"),
+                "run_command": ("run", "execute", "command", "terminal", "shell", "install", "package", "service", "process", "git", "test", "build"),
+                "system_info": ("system", "machine", "hardware", "resource", "cpu", "memory", "ram", "disk", "uptime", "operating system", " os "),
+                "web_search": ("web", "internet", "online", "latest", "current", "website", "site", "url", "http"),
+                "web_fetch": ("web", "internet", "online", "website", "site", "url", "http", "fetch page"),
+                "remember": ("remember", "preference", "fact about me"),
+                "recall": ("recall", "memory", "remember", "know about me", "preference"),
+            }
+            selected = {name for name, words in routes.items() if any(mentions(word) for word in words)}
+        return [
+            tool.openai_schema()
+            for name, tool in self._tools.items()
+            if name in selected and name not in blocked
+        ]
+
+    async def execute(self, name: str, arguments: dict[str, Any], context: ToolContext) -> Any:
+        tool = self._tools.get(name)
+        if tool is None:
+            raise ToolError(f"unknown tool: {name}")
+        if context.remote and name in {"write_file", "run_command"}:
+            raise SecurityError(f"{name} is unavailable over Telegram")
+        started = time.monotonic()
+        try:
+            result = await tool.handler(arguments, context)
+            outcome = f"ok in {time.monotonic() - started:.3f}s"
+            self.memory.audit(context.session_id, name, arguments, outcome, context.remote)
+            return result
+        except Exception as exc:
+            self.memory.audit(context.session_id, name, arguments, f"error: {exc}", context.remote)
+            raise
+
+    def _register_defaults(self) -> None:
+        string = {"type": "string"}
+        self.register(ToolDefinition("read_file", "Read a UTF-8 text file inside allowed roots.", _object_schema({"path": string}, ["path"]), self._read_file))
+        self.register(ToolDefinition("list_files", "List a directory inside allowed roots.", _object_schema({"path": string}, ["path"]), self._list_files))
+        self.register(ToolDefinition("search_files", "Search file contents with ripgrep.", _object_schema({"query": string, "path": string}, ["query", "path"]), self._search_files))
+        self.register(ToolDefinition("write_file", "Atomically write a UTF-8 file after permission.", _object_schema({"path": string, "content": string}, ["path", "content"]), self._write_file))
+        self.register(ToolDefinition("run_command", "Run one program without a shell, with time/output limits.", _object_schema({"command": string, "cwd": string, "timeout": {"type": "integer", "minimum": 1, "maximum": 600}}, ["command"]), self._run_command))
+        self.register(ToolDefinition("system_info", "Inspect operating system, CPU, memory, disk and uptime.", _object_schema({}), self._system_info))
+        self.register(ToolDefinition("web_search", "Search the public web and return titles, URLs and snippets.", _object_schema({"query": string, "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, ["query"]), self._web_search))
+        self.register(ToolDefinition("web_fetch", "Fetch a public HTTP(S) page as bounded text.", _object_schema({"url": string}, ["url"]), self._web_fetch))
+        self.register(ToolDefinition("remember", "Persist a useful user preference or stable fact.", _object_schema({"content": string, "importance": {"type": "number", "minimum": 0, "maximum": 1}}, ["content"]), self._remember))
+        self.register(ToolDefinition("recall", "Search persistent long-term memory.", _object_schema({"query": string}, ["query"]), self._recall))
+
+    async def _read_file(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        path = self.paths.resolve(str(args["path"]), ctx.cwd, must_exist=True)
+        if not path.is_file():
+            raise ToolError(f"not a regular file: {path}")
+        # Bounded local reads are short and avoid keeping an executor alive in the daemon.
+        with path.open("rb") as handle:
+            data = handle.read(self.settings.max_read_bytes + 1)
+        truncated = len(data) > self.settings.max_read_bytes
+        return {"path": str(path), "content": data[: self.settings.max_read_bytes].decode("utf-8", "replace"), "truncated": truncated}
+
+    async def _list_files(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        path = self.paths.resolve(str(args["path"]), ctx.cwd, must_exist=True)
+        if not path.is_dir():
+            raise ToolError(f"not a directory: {path}")
+        entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))[:500]
+        return {"path": str(path), "entries": [{"name": p.name, "type": "dir" if p.is_dir() else "file"} for p in entries]}
+
+    async def _search_files(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        path = self.paths.resolve(str(args["path"]), ctx.cwd, must_exist=True)
+        query = str(args["query"])
+        binary = shutil.which("rg")
+        if not binary:
+            raise ToolError("ripgrep is not installed")
+        proc = await asyncio.create_subprocess_exec(binary, "--line-number", "--no-heading", "--color=never", "--", query, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await self._bounded_output(proc, self.settings.command_timeout)
+        return {"matches": stdout[: self.settings.max_tool_output].decode("utf-8", "replace"), "stderr": stderr[:4096].decode("utf-8", "replace"), "exit_code": proc.returncode}
+
+    async def _bounded_output(self, proc: asyncio.subprocess.Process, timeout: int) -> tuple[bytes, bytes]:
+        limit = self.settings.max_tool_output + 1
+        async def drain(reader: asyncio.StreamReader | None) -> bytes:
+            kept = bytearray()
+            if reader is None:
+                return bytes(kept)
+            while chunk := await reader.read(16 * 1024):
+                if len(kept) < limit:
+                    kept.extend(chunk[: limit - len(kept)])
+            return bytes(kept)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                asyncio.gather(drain(proc.stdout), drain(proc.stderr)), timeout=timeout
+            )
+            await proc.wait()
+            return stdout, stderr
+        except asyncio.TimeoutError as exc:
+            proc.kill()
+            await proc.wait()
+            raise ToolError(f"command timed out after {timeout}s") from exc
+
+    async def _write_file(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        path = self.paths.resolve(str(args["path"]), ctx.cwd)
+        await self.permissions.authorize("filesystem.write", str(path), Risk.WRITE, ctx.remote, ctx.permission_callback)
+        content = str(args["content"])
+        if len(content.encode()) > 8 * 1024 * 1024:
+            raise ToolError("write exceeds 8 MiB limit")
+        def atomic_write() -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_name(f".{path.name}.kilo-tmp-{os.getpid()}")
+            temp.write_text(content, encoding="utf-8")
+            temp.replace(path)
+        await asyncio.to_thread(atomic_write)
+        return {"path": str(path), "bytes": len(content.encode())}
+
+    async def _run_command(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        assessment = self.commands.assess(str(args["command"]), ctx.remote)
+        await self.permissions.authorize("terminal.execute", " ".join(assessment.argv), assessment.risk, ctx.remote, ctx.permission_callback)
+        cwd = self.paths.resolve(str(args.get("cwd") or ctx.cwd), ctx.cwd, must_exist=True)
+        timeout = min(int(args.get("timeout", self.settings.command_timeout)), 600)
+        try:
+            proc = await asyncio.create_subprocess_exec(*assessment.argv, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True)
+            stdout, stderr = await self._bounded_output(proc, timeout)
+        except OSError as exc:
+            raise ToolError(f"could not execute {assessment.argv[0]}: {exc}") from exc
+        limit = self.settings.max_tool_output
+        return {"exit_code": proc.returncode, "stdout": stdout[:limit].decode("utf-8", "replace"), "stderr": stderr[:limit].decode("utf-8", "replace"), "truncated": len(stdout) > limit or len(stderr) > limit}
+
+    async def _system_info(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del args, ctx
+        mem = {}
+        try:
+            for line in Path("/proc/meminfo").read_text().splitlines()[:5]:
+                key, value = line.split(":", 1)
+                mem[key] = value.strip()
+        except OSError:
+            pass
+        usage = shutil.disk_usage("/")
+        return {"platform": platform.platform(), "python": platform.python_version(), "cpu_count": os.cpu_count(), "memory": mem, "disk": {"total": usage.total, "used": usage.used, "free": usage.free}, "load_average": os.getloadavg() if hasattr(os, "getloadavg") else None}
+
+    @staticmethod
+    def _public_url(url: str) -> str:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise SecurityError("only public HTTP(S) URLs are allowed")
+        try:
+            addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))}
+        except socket.gaierror as exc:
+            raise ToolError(f"DNS lookup failed: {parsed.hostname}") from exc
+        for raw in addresses:
+            ip = ipaddress.ip_address(raw)
+            if not ip.is_global:
+                raise SecurityError(f"private or local address blocked: {ip}")
+        return url
+
+    @staticmethod
+    def _request_text(url: str, max_bytes: int = 1_000_000) -> tuple[str, str]:
+        request = urllib.request.Request(url, headers={"User-Agent": "Kilobyte/0.1 (+local-first terminal assistant)", "Accept": "text/html,text/plain,application/json"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            content_type = response.headers.get_content_type()
+            data = response.read(max_bytes + 1)
+        return data[:max_bytes].decode("utf-8", "replace"), content_type
+
+    async def _web_search(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del ctx
+        query = str(args["query"]).strip()
+        limit = min(int(args.get("limit", 5)), 10)
+        url = "https://www.bing.com/search?" + urllib.parse.urlencode({"q": query, "format": "rss"})
+        body, _ = await asyncio.to_thread(self._request_text, url, 800_000)
+        return {"query": query, "results": self._parse_search_rss(body, limit)}
+
+    @staticmethod
+    def _parse_search_rss(body: str, limit: int) -> list[dict[str, str]]:
+        results = []
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError as exc:
+            raise ToolError("search provider returned invalid RSS") from exc
+        strip = lambda text: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", text or ""))).strip()
+        for item in root.findall("./channel/item")[:limit]:
+            link = (item.findtext("link") or "").strip()
+            if link.startswith(("http://", "https://")):
+                results.append({
+                    "title": strip(item.findtext("title") or ""),
+                    "url": link,
+                    "snippet": strip(item.findtext("description") or ""),
+                })
+        return results
+
+    async def _web_fetch(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del ctx
+        url = self._public_url(str(args["url"]))
+        body, content_type = await asyncio.to_thread(self._request_text, url)
+        if content_type == "text/html":
+            body = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", body)
+            body = re.sub(r"(?s)<[^>]+>", " ", body)
+            body = re.sub(r"\s+", " ", html.unescape(body)).strip()
+        return {"url": url, "content_type": content_type, "content": body[:200_000], "truncated": len(body) > 200_000}
+
+    async def _remember(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        fact_id = self.memory.remember(str(args["content"]), scope="global", importance=float(args.get("importance", 0.5)))
+        return {"remembered": True, "id": fact_id}
+
+    async def _recall(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        return {"facts": self.memory.recall(str(args["query"]))}
