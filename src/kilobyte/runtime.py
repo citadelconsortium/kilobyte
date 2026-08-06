@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -29,6 +30,7 @@ class LlamaRuntime:
         self.log_path = settings.log_dir / "llama-server.log"
         self._log_handle: Any = None
         self._lock = asyncio.Lock()
+        self.cache_restored = False
 
     @property
     def base_url(self) -> str:
@@ -131,13 +133,39 @@ class LlamaRuntime:
                 return False
         return await asyncio.to_thread(check)
 
+    def _slot_action(self, action: str, filename: str, timeout: float = 180.0) -> bool:
+        request = urllib.request.Request(
+            f"{self.base_url}/slots/0?action={action}",
+            data=json.dumps({"filename": filename}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status == 200
+        except Exception:
+            return False
+
+    def _cache_filename(self, system_prompt: str, tools: list[dict[str, Any]] | None) -> str:
+        """Key the saved cache to the exact prefix, so changing the prompt or the tool
+        set re-warms instead of restoring a stale prefix that would never be reused."""
+        digest = hashlib.sha256()
+        digest.update(system_prompt.encode())
+        digest.update(json.dumps(tools or [], sort_keys=True).encode())
+        digest.update(str(self.settings.model_path).encode())
+        return f"kilobyte-prefix-{digest.hexdigest()[:16]}.bin"
+
     async def warmup(self, system_prompt: str, tools: list[dict[str, Any]] | None = None) -> None:
-        """Pre-populate llama-server's KV cache with the exact prefix real requests use.
+        """Make the prefix real requests use resident in the KV cache.
 
         The tool schemas must match what the agent sends, otherwise the prefix differs
         and every real message still pays full prompt processing -- minutes on a CPU-only
-        machine.
+        machine. The warmed slot is saved to disk and restored on the next start, so this
+        cost is paid once for a given prompt/tool set rather than on every boot.
         """
+        filename = self._cache_filename(system_prompt, tools)
+        if await asyncio.to_thread(self._slot_action, "restore", filename):
+            self.cache_restored = True
+            return
         payload: dict[str, Any] = {
             "model": "kilobyte",
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Reply with just: ready"}],
@@ -148,6 +176,7 @@ class LlamaRuntime:
             payload["tool_choice"] = "auto"
         async for _ in self.chat_stream(payload):
             pass
+        await asyncio.to_thread(self._slot_action, "save", filename)
 
     async def metadata(self) -> dict[str, Any]:
         def fetch() -> dict[str, Any]:
