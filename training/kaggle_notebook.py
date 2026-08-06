@@ -26,7 +26,12 @@ def log(msg: str) -> None:
 
 
 def load_config() -> dict:
-    for candidate in (Path("config.json"), Path(__file__).parent / "config.json", Path(__file__).parent / "config.example.json"):
+    candidates = [Path("config.json"), Path(__file__).parent / "config.json"]
+    # On Kaggle the config is bundled into the attached dataset input directory.
+    import glob
+    candidates += [Path(p) for p in glob.glob("/kaggle/input/*/config.json")]
+    candidates.append(Path(__file__).parent / "config.example.json")
+    for candidate in candidates:
         if candidate.is_file():
             return json.loads(candidate.read_text())
     raise SystemExit("config.json not found")

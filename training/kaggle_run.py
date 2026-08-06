@@ -63,6 +63,8 @@ def push_dataset(api, config: dict, data_dir: Path) -> str:
             src = data_dir / name
             if src.is_file():
                 shutil.copy2(src, staging / name)
+        # Bundle the config so the notebook finds it at /kaggle/input/<slug>/config.json.
+        shutil.copy2(config["_config_path"], staging / "config.json")
         metadata = {
             "title": "Kilobyte SFT",
             "id": ref,
@@ -85,11 +87,8 @@ def push_notebook(api, config: dict, dataset_ref: str) -> str:
     here = Path(__file__).parent
     with tempfile.TemporaryDirectory() as raw:
         staging = Path(raw)
-        # The notebook script and the config travel together; the config carries no secrets.
-        shutil.copy2(here / "kaggle_notebook.py", staging / "kaggle_notebook.py")
-        shutil.copy2(config["_config_path"], staging / "config.json")
-        source = "import runpy, sys\nsys.argv = ['kaggle_notebook.py']\nrunpy.run_path('kaggle_notebook.py', run_name='__main__')\n"
-        (staging / "kilobyte-train.py").write_text(source)
+        # Push the training script itself as the kernel source; no launcher wrapper.
+        shutil.copy2(here / "kaggle_notebook.py", staging / "kilobyte-train.py")
         metadata = {
             "id": ref,
             "title": "Kilobyte Train",
