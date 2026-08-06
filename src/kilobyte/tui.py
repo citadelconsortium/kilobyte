@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import sys
 import threading
 import time
@@ -89,63 +90,105 @@ class TerminalUI:
         writer.write((__import__("json").dumps({"type": "permission_response", "id": event["id"], "allow": answer.lower() in {"y", "yes"}}) + "\n").encode())
         await writer.drain()
 
+    async def _animate(self, state: dict[str, Any]) -> None:
+        """Redraw the activity line on a timer so slow steps never look frozen."""
+        frame = 0
+        while True:
+            if state["streaming"]:
+                await asyncio.sleep(0.12)
+                frame += 1
+                continue
+            elapsed = time.monotonic() - state["started"]
+            glyph = self.SPINNER[frame % len(self.SPINNER)]
+            sys.stdout.write(
+                f"\r\033[2K{GREEN}│{RESET} {GREEN}{glyph}{RESET} {DIM}{state['phase']} · {elapsed:0.0f}s{RESET}"
+                f"  {DIM}(ctrl-c to cancel){RESET}"
+            )
+            sys.stdout.flush()
+            frame += 1
+            await asyncio.sleep(0.12)
+
     async def ask(self, text: str) -> None:
         reader, writer = await asyncio.open_unix_connection(self.client.socket_path)
         request = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd())}
         writer.write((__import__("json").dumps(request) + "\n").encode())
         await writer.drain()
-        spinner = 0
         started = time.monotonic()
+        state: dict[str, Any] = {"phase": "connecting", "started": started, "streaming": False}
+        animator = asyncio.create_task(self._animate(state))
         last_flush = started
         pending = ""
         printed = False
+        cancelled = False
         try:
             while raw := await reader.readline():
                 event = __import__("json").loads(raw)
                 kind = event.get("type")
                 if kind == "session":
                     self.session_id = event["session_id"]
+                    state["phase"] = "thinking"
                 elif kind == "thinking":
-                    elapsed = time.monotonic() - started
-                    sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} {GREEN}{self.SPINNER[spinner % len(self.SPINNER)]}{RESET} {DIM}thinking · step {event['step']} · {elapsed:0.0f}s{RESET}")
-                    sys.stdout.flush()
-                    spinner += 1
+                    state["phase"] = f"thinking · step {event['step']}"
+                    state["streaming"] = False
                 elif kind == "token":
                     if not printed:
+                        state["streaming"] = True
                         sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} ")
                         printed = True
                     pending += event.get("text", "")
                     now = time.monotonic()
                     if now - last_flush >= 0.05:
-                        sys.stdout.write(pending)
+                        sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
                         sys.stdout.flush()
                         pending = ""
                         last_flush = now
                 elif kind == "tool_start":
+                    if pending:
+                        sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
+                        pending = ""
+                    state["phase"] = f"running {event['name']}"
+                    state["streaming"] = False
                     sys.stdout.write(f"\r\033[2K{GREEN}│{RESET} {PURPLE}◈{RESET} {DIM}{event['name']}…{RESET}\n")
                     sys.stdout.flush()
                     printed = False
                 elif kind == "tool_end":
                     icon = f"{GREEN}✓{RESET}" if event.get("ok") else f"{YELLOW}!{RESET}"
                     print(f"\r\033[2K{GREEN}│{RESET} {icon} {DIM}{event['name']}: {event.get('summary', '')[:160]}{RESET}")
+                    state["phase"] = "interpreting result"
+                    state["streaming"] = False
                     printed = False
                 elif kind == "permission":
+                    state["streaming"] = True  # pause the animator while we prompt
                     await self._permission(event, writer)
+                    state["streaming"] = False
                 elif kind == "error":
                     print(f"\r\033[2K{GREEN}│{RESET} {YELLOW}error:{RESET} {event.get('error')}")
                     printed = False
                 elif kind == "done":
                     break
             if pending:
-                sys.stdout.write(pending)
+                sys.stdout.write(pending.replace("\n", f"\n{GREEN}│{RESET} "))
             if printed:
                 sys.stdout.write(RESET)
             sys.stdout.flush()
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            cancelled = True
+            raise
         finally:
+            animator.cancel()
+            # Dropping the connection tells the daemon to close the agent run and
+            # release the model slot, so a cancel actually stops the work.
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+            sys.stdout.write("\r\033[2K")
             elapsed = time.monotonic() - started
-            self._panel_bottom(GREEN, f"done in {elapsed:0.1f}s")
+            if cancelled:
+                self._panel_bottom(YELLOW, f"cancelled after {elapsed:0.1f}s")
+            else:
+                self._panel_bottom(GREEN, f"done in {elapsed:0.1f}s")
             print()
 
     async def run(self) -> None:
@@ -156,11 +199,12 @@ class TerminalUI:
                 text = (await asyncio.to_thread(input, f"{CYAN}│{RESET} ")).strip()
                 self._panel_bottom(CYAN)
             except (EOFError, KeyboardInterrupt):
-                print()
+                print(f"\n{DIM}bye{RESET}")
                 return
             if not text:
                 continue
-            if text in {"/exit", "/quit"}:
+            if text in {"/exit", "/quit", "/q", "exit", "quit"}:
+                print(f"{DIM}bye{RESET}")
                 return
             if text == "/new":
                 self.session_id = None
@@ -212,9 +256,23 @@ class TerminalUI:
                 print()
                 continue
             self._panel_top("kilo", GREEN)
+            # Run the exchange as a task so SIGINT can cancel just this generation
+            # instead of tearing down the whole interface.
+            task = asyncio.create_task(self.ask(text))
+            loop = asyncio.get_running_loop()
             try:
-                await self.ask(text)
+                loop.add_signal_handler(signal.SIGINT, task.cancel)
+            except (NotImplementedError, RuntimeError):
+                loop = None
+            try:
+                await task
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                # First ctrl-c cancels this generation only; the session continues.
+                print(f"{DIM}generation cancelled — type /exit to leave{RESET}\n")
             except (ConnectionError, FileNotFoundError) as exc:
                 print(f"{YELLOW}Daemon unavailable:{RESET} {exc}\nTry: sudo systemctl restart kilobyte")
                 self._panel_bottom(YELLOW, "not delivered")
                 print()
+            finally:
+                if loop is not None:
+                    loop.remove_signal_handler(signal.SIGINT)

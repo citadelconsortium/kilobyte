@@ -38,12 +38,17 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(SecurityError):
             await self.tools.execute("run_command", {"command": "true"}, ToolContext(self.session, Path(self.tmp.name), remote=True))
 
-    async def test_request_routes_only_relevant_tool_schemas(self):
-        self.assertEqual(self.tools.schemas(request="Reply with exactly: ready"), [])
-        system_names = {item["function"]["name"] for item in self.tools.schemas(request="Inspect this machine CPU")}
-        self.assertEqual(system_names, {"system_info"})
-        web_names = {item["function"]["name"] for item in self.tools.schemas(remote=True, request="Search the web for Arch Linux")}
-        self.assertEqual(web_names, {"web_search", "web_fetch"})
+    async def test_tool_schemas_are_stable_across_requests(self):
+        """Tools render into the cacheable prompt prefix, so the set must not vary with
+        the request text; varying it forces a full prompt reprocess on every message."""
+        baseline = self.tools.schemas()
+        self.assertTrue(baseline)
+        for request in ("Reply with exactly: ready", "Inspect this machine CPU", "Search the web for Arch Linux"):
+            self.assertEqual(self.tools.schemas(request=request), baseline)
+        # Remote still drops mutating tools, and does so consistently.
+        remote = self.tools.schemas(remote=True)
+        self.assertEqual(self.tools.schemas(remote=True, request="Search the web for Arch Linux"), remote)
+        self.assertLess(len(remote), len(baseline))
 
     async def test_memory_tools(self):
         await self.tools.execute("remember", {"content": "favorite shell is bash"}, self.context)

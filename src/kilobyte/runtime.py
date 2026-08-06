@@ -125,14 +125,21 @@ class LlamaRuntime:
                 return False
         return await asyncio.to_thread(check)
 
-    async def warmup(self, system_prompt: str) -> None:
-        """Pre-populate llama-server's KV cache with the system prompt so a user's first real
-        message doesn't pay the full cold prompt-processing cost on slow CPUs."""
-        payload = {
+    async def warmup(self, system_prompt: str, tools: list[dict[str, Any]] | None = None) -> None:
+        """Pre-populate llama-server's KV cache with the exact prefix real requests use.
+
+        The tool schemas must match what the agent sends, otherwise the prefix differs
+        and every real message still pays full prompt processing -- minutes on a CPU-only
+        machine.
+        """
+        payload: dict[str, Any] = {
             "model": "kilobyte",
             "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Reply with just: ready"}],
             "max_tokens": 4,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
         async for _ in self.chat_stream(payload):
             pass
 

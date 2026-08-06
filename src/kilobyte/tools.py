@@ -72,31 +72,18 @@ class ToolRegistry:
         self._tools[tool.name] = tool
 
     def schemas(self, remote: bool = False, request: str | None = None) -> list[dict[str, Any]]:
-        blocked = {"write_file", "run_command"} if remote else set()
-        selected = set(self._tools)
-        if request is not None:
-            text = request.casefold()
-            def mentions(term: str) -> bool:
-                return term in text if " " in term else re.search(rf"\b{re.escape(term)}\b", text) is not None
+        """Return a stable tool set.
 
-            routes = {
-                "read_file": ("read", "open", "show file", "view file"),
-                "list_files": ("list", "directory", "folder", "downloads", "files in"),
-                "search_files": ("grep", "ripgrep", "search file", "find in", "repository", "codebase"),
-                "write_file": ("write", "create", "edit", "modify", "save", "patch"),
-                "run_command": ("run", "execute", "command", "terminal", "shell", "install", "package", "service", "process", "git", "test", "build"),
-                "system_info": ("system", "machine", "hardware", "resource", "cpu", "memory", "ram", "disk", "uptime", "operating system", " os "),
-                "web_search": ("web", "internet", "online", "latest", "current", "website", "site", "url", "http"),
-                "web_fetch": ("web", "internet", "online", "website", "site", "url", "http", "fetch page"),
-                "remember": ("remember", "preference", "fact about me"),
-                "recall": ("recall", "memory", "remember", "know about me", "preference"),
-            }
-            selected = {name for name, words in routes.items() if any(mentions(word) for word in words)}
-        return [
-            tool.openai_schema()
-            for name, tool in self._tools.items()
-            if name in selected and name not in blocked
-        ]
+        The list deliberately does not vary with the request text. Tools are rendered
+        into the prompt prefix, so selecting them per request changes that prefix and
+        misses llama-server's cache, forcing a full reprocess of the system prompt on
+        every message -- minutes of work on CPU-only hardware. A fixed set keeps the
+        prefix cacheable, and letting the model choose from all tools is also what the
+        agent design calls for.
+        """
+        del request
+        blocked = {"write_file", "run_command"} if remote else set()
+        return [tool.openai_schema() for name, tool in self._tools.items() if name not in blocked]
 
     async def execute(self, name: str, arguments: dict[str, Any], context: ToolContext) -> Any:
         tool = self._tools.get(name)

@@ -72,7 +72,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(memory.stats()["tool_audit"], 1)
             memory.close()
 
-    async def test_plain_chat_omits_tool_schema(self):
+    async def test_plain_chat_sends_the_stable_tool_schema(self):
+        """A plain answer still carries the full tool list: the prefix has to stay
+        identical between requests for llama-server's prompt cache to be reused."""
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             settings = Settings(data_dir=root, config_dir=root, runtime_dir=root, log_dir=root, home=root)
@@ -82,7 +84,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             agent = Agent(settings, runtime, memory, tools)  # type: ignore[arg-type]
             events = [event async for event in agent.run("Reply with exactly: ready")]
             self.assertEqual("".join(e.get("text", "") for e in events), "ready")
-            self.assertNotIn("tools", runtime.payload)
+            self.assertEqual(runtime.payload["tools"], tools.schemas())
             memory.close()
 
     async def test_duplicate_tool_call_is_blocked_and_tools_are_disabled(self):

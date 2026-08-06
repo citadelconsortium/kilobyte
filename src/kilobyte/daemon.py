@@ -44,8 +44,8 @@ async def serve() -> None:
 
     async def warmup() -> None:
         try:
-            log.info("warming model cache with system prompt")
-            await runtime.warmup(SYSTEM_PROMPT)
+            log.info("warming model cache with system prompt and tool schemas")
+            await runtime.warmup(SYSTEM_PROMPT, tools.schemas())
             log.info("model cache warm")
         except Exception:
             log.exception("warmup failed; first real request will pay the cold cost")
