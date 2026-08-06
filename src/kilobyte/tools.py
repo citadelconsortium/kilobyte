@@ -3,13 +3,11 @@ from __future__ import annotations
 import asyncio
 import html
 import ipaddress
-import json
 import os
 import platform
 import re
 import shutil
 import socket
-import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -47,6 +45,34 @@ class ToolDefinition:
             "type": "function",
             "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
         }
+
+
+def _assert_public(url: str) -> None:
+    """Refuse a URL that resolves to anything other than a globally routable address."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise SecurityError("only public HTTP(S) URLs are allowed")
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))}
+    except socket.gaierror as exc:
+        raise ToolError(f"DNS lookup failed: {parsed.hostname}") from exc
+    for raw in addresses:
+        ip = ipaddress.ip_address(raw)
+        if not ip.is_global:
+            raise SecurityError(f"private or local address blocked: {ip}")
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-check every redirect target.
+
+    Validating only the requested URL is not enough: a public host may redirect to the
+    local network, and urllib follows redirects by default, which would turn web_fetch
+    into a way to reach services the path and command policies exist to protect.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        _assert_public(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -203,23 +229,17 @@ class ToolRegistry:
 
     @staticmethod
     def _public_url(url: str) -> str:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise SecurityError("only public HTTP(S) URLs are allowed")
-        try:
-            addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))}
-        except socket.gaierror as exc:
-            raise ToolError(f"DNS lookup failed: {parsed.hostname}") from exc
-        for raw in addresses:
-            ip = ipaddress.ip_address(raw)
-            if not ip.is_global:
-                raise SecurityError(f"private or local address blocked: {ip}")
+        _assert_public(url)
         return url
 
     @staticmethod
     def _request_text(url: str, max_bytes: int = 1_000_000) -> tuple[str, str]:
         request = urllib.request.Request(url, headers={"User-Agent": "Kilobyte/0.1 (+local-first terminal assistant)", "Accept": "text/html,text/plain,application/json"})
-        with urllib.request.urlopen(request, timeout=15) as response:
+        # Redirects are followed by default, so validating only the URL we were given
+        # leaves the private-address block bypassable: a public host can answer 302 with
+        # a location on the local network. Every hop is re-checked instead.
+        opener = urllib.request.build_opener(_ValidatingRedirectHandler)
+        with opener.open(request, timeout=15) as response:
             content_type = response.headers.get_content_type()
             data = response.read(max_bytes + 1)
         return data[:max_bytes].decode("utf-8", "replace"), content_type
@@ -235,6 +255,13 @@ class ToolRegistry:
     @staticmethod
     def _parse_search_rss(body: str, limit: int) -> list[dict[str, str]]:
         results = []
+        # ElementTree does not resolve external entities, but it does expand internal
+        # ones, so a hostile or compromised provider could return a small document that
+        # expands to gigabytes. Bounding the response does not bound the expansion, and
+        # this runs on machines with about 2 GB to spare, so documents carrying a
+        # document type declaration are refused outright.
+        if re.search(r"<!DOCTYPE", body[:4096], re.IGNORECASE):
+            raise ToolError("search provider returned a document type declaration; refused")
         try:
             root = ET.fromstring(body)
         except ET.ParseError as exc:

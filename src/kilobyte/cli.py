@@ -16,7 +16,7 @@ from .doctor import run_checks
 from .errors import KilobyteError
 from .resources import ResourceManager
 from .rpc import RPCClient
-from .tui import CYAN, DIM, GREEN, RESET, TerminalUI, YELLOW
+from .tui import GREEN, RESET, TerminalUI, YELLOW
 
 
 def json_print(value: Any) -> None:
@@ -124,10 +124,10 @@ def main() -> None:
         raise SystemExit(asyncio.run(async_main(args, settings)))
     except (FileNotFoundError, ConnectionRefusedError):
         print(f"{YELLOW}Kilobyte daemon is not running.{RESET} Try: sudo systemctl start kilobyte", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
     except KilobyteError as exc:
         print(f"{YELLOW}Kilobyte error:{RESET} {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

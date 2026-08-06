@@ -10,7 +10,6 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 from .config import Settings

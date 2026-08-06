@@ -4,10 +4,8 @@ import asyncio
 import os
 import signal
 import sys
-import threading
 import time
 from pathlib import Path
-from queue import Empty, Queue
 from typing import Any
 
 from .rpc import RPCClient
@@ -68,7 +66,10 @@ class TerminalUI:
             f"{DIM}made by 0v3r51ght{RESET}",
         )
         print()
-        for art_line, info_line in zip(KILO_ART, info):
+        # Pad rather than zip: a bare zip silently drops banner rows whenever the
+        # wordmark and the status column stop being the same height.
+        padded = list(info) + [""] * (len(KILO_ART) - len(info))
+        for art_line, info_line in zip(KILO_ART, padded, strict=True):
             print(f"  {GREEN}{BOLD}{art_line}{RESET}   {info_line}")
         print(f"\n  {DIM}/help · /status · /new · /clear · /exit · Ctrl-C{RESET}\n")
 

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from kilobyte.config import Settings
-from kilobyte.errors import SecurityError
+from kilobyte.errors import SecurityError, ToolError
 from kilobyte.memory import MemoryStore
 from kilobyte.security import PermissionManager
 from kilobyte.tools import ToolContext, ToolRegistry
@@ -60,6 +60,38 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         results = self.tools._parse_search_rss(rss, 2)
         self.assertEqual(results[0]["url"], "https://archlinux.org/")
         self.assertEqual(results[0]["snippet"], "Simple & lightweight.")
+
+
+class WebSecurityTests(unittest.TestCase):
+    """The web tools are the only path that reaches outside the machine, so the
+    private-network block has to survive redirects and hostile responses."""
+
+    def test_private_and_non_http_urls_are_refused(self):
+        from kilobyte.tools import _assert_public
+
+        for url in ("http://127.0.0.1/", "http://192.168.1.1/admin", "http://[::1]/", "file:///etc/passwd", "gopher://example.com/"):
+            with self.assertRaises((SecurityError, ToolError), msg=url):
+                _assert_public(url)
+
+    def test_redirect_targets_are_revalidated(self):
+        """A public host answering 302 with a local address must not be followed;
+        validating only the requested URL leaves the block bypassable."""
+        from kilobyte.tools import _ValidatingRedirectHandler
+
+        handler = _ValidatingRedirectHandler()
+        with self.assertRaises(SecurityError):
+            handler.redirect_request(None, None, 302, "Found", {}, "http://169.254.169.254/latest/meta-data/")
+
+    def test_entity_expansion_document_is_refused(self):
+        """ElementTree expands internal entities, so a small hostile document can
+        expand to gigabytes on a machine with little memory to spare."""
+        bomb = (
+            '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">'
+            '<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;">]>'
+            "<rss><channel><item><title>&lol2;</title></item></channel></rss>"
+        )
+        with self.assertRaises(ToolError):
+            ToolRegistry._parse_search_rss(bomb, 5)
 
 
 if __name__ == "__main__":
