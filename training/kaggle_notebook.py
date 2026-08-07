@@ -147,7 +147,7 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
     tokenizer = AutoTokenizer.from_pretrained(base)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.float16, device_map="auto")
     model.config.use_cache = False
     if tc.get("gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
@@ -187,7 +187,7 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
         lr_scheduler_type=tc["lr_scheduler"],
         warmup_ratio=tc["warmup_ratio"],
         weight_decay=tc["weight_decay"],
-        bf16=True,
+        fp16=True,
         logging_steps=5,
         save_strategy="no",
         report_to=[],

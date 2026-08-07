@@ -72,3 +72,32 @@ class SkillRegistryTests(unittest.TestCase):
             memory.save_skill(f"skill {index}", "when testing", "step")
         self.assertLessEqual(len(memory.list_skills()), 5)
         memory.close()
+
+
+class SessionBrowsingTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.memory = MemoryStore(Path(self.tmp.name) / "m.db")
+
+    def tearDown(self):
+        self.memory.close()
+        self.tmp.cleanup()
+
+    def test_list_sessions_returns_nonempty_sessions_newest_first(self):
+        a = self.memory.new_session("terminal", "first chat")
+        self.memory.add_message(a, "user", "hello")
+        b = self.memory.new_session("terminal", "second chat")
+        self.memory.add_message(b, "user", "later")
+        self.memory.new_session("terminal", "empty")  # no messages -> excluded
+        sessions = self.memory.list_sessions()
+        self.assertEqual([s["id"] for s in sessions], [b, a])
+        self.assertTrue(all(s["messages"] > 0 for s in sessions))
+
+    def test_search_messages_finds_across_sessions(self):
+        a = self.memory.new_session("terminal", "a")
+        self.memory.add_message(a, "user", "the firewall rule is wrong")
+        b = self.memory.new_session("terminal", "b")
+        self.memory.add_message(b, "assistant", "I fixed the firewall")
+        hits = self.memory.search_messages("firewall")
+        self.assertEqual(len(hits), 2)
+        self.assertEqual(self.memory.search_messages("nonexistentword"), [])

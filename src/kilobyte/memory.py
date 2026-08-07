@@ -87,6 +87,36 @@ class MemoryStore:
             self._db.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session_id))
         self.prune()
 
+    def list_sessions(self, channel: str = "terminal", limit: int = 50) -> list[dict[str, Any]]:
+        """Recent sessions for browsing past chats, newest first, with a message count and
+        the first user line as a title so a session is recognisable."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT s.id, s.title, s.updated_at, "
+                "(SELECT count(*) FROM messages m WHERE m.session_id = s.id) AS messages "
+                "FROM sessions s WHERE s.channel=? AND "
+                "(SELECT count(*) FROM messages m WHERE m.session_id = s.id) > 0 "
+                "ORDER BY s.updated_at DESC LIMIT ?",
+                (channel, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def search_messages(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Find past conversation lines across all sessions, so Kilo can recall something
+        said in an earlier chat, not just the current one."""
+        terms = [term for term in query.lower().split() if len(term) > 2][:6]
+        if not terms:
+            return []
+        clauses = " OR ".join("lower(content) LIKE ?" for _ in terms)
+        params: list[Any] = [*[f"%{term}%" for term in terms], limit]
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT session_id, role, content, created_at FROM messages "
+                f"WHERE ({clauses}) ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def history(self, session_id: str, limit: int = 40) -> list[dict[str, str]]:
         with self._lock:
             rows = self._db.execute(

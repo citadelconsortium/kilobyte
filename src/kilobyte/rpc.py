@@ -55,6 +55,11 @@ class RPCServer:
                 await self._send(writer, {"type": "result", "data": self.resources.profile().to_dict()})
             elif command == "model_info":
                 await self._send(writer, {"type": "result", "data": await self.runtime.metadata()})
+            elif command == "sessions":
+                await self._send(writer, {"type": "result", "data": {"sessions": self.memory.list_sessions()}})
+            elif command == "session_history":
+                sid = str(request.get("session_id", ""))
+                await self._send(writer, {"type": "result", "data": {"messages": self.memory.history(sid, 200)}})
             elif command == "chat":
                 async def permission(capability: str, detail: str, risk: Risk) -> bool:
                     permission_id = uuid.uuid4().hex

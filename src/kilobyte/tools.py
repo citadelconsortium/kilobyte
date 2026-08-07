@@ -166,6 +166,12 @@ class ToolRegistry:
             self._save_skill,
         ))
         self.register(ToolDefinition(
+            "search_history",
+            "Search your past conversations across earlier sessions to recall something the user said or you did before.",
+            _object_schema({"query": string}, ["query"]),
+            self._search_history,
+        ))
+        self.register(ToolDefinition(
             "list_skills",
             "List the procedures already learned, with how reliable each has been.",
             _object_schema({}),
@@ -337,3 +343,8 @@ class ToolRegistry:
     async def _list_skills(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         del args, ctx
         return {"skills": self.memory.list_skills()}
+
+    async def _search_history(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del ctx
+        hits = self.memory.search_messages(str(args["query"]))
+        return {"matches": [{"role": h["role"], "content": h["content"][:300]} for h in hits]}
