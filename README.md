@@ -3,18 +3,29 @@
 Kilobyte is a local-first terminal AI built around exactly one prebuilt GGUF brain. A persistent
 `llama-server` instance provides inference; a deterministic Python framework owns IPC, resources,
 tool validation, permissions, machine/web access, bounded SQLite memory, Telegram policy, and UI.
-There is no cloud fallback, training path, adapter, or model picker.
+The local brain is the default and never leaves the machine; optional, explicit cloud
+escalation (/cloud) exists for when more power is wanted. The brain itself is produced by a
+separate, reproducible training pipeline.
 
-## Install on Arch Linux
+## Install
+
+Kilobyte runs on any modern **Linux** distribution. The one-line installer targets
+Arch (it uses `pacman`); on other distros install the handful of dependencies with your
+package manager first (see below), then run the manual install.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/citadelconsortium/kilobyte/main/scripts/install-online.sh | bash
 kilo
 ```
 
-The installer handles system dependencies (`llama-cpp`, `python`, `curl`, `sqlite`, `ripgrep`), creates the
-service user if needed, installs the app, downloads and verifies the model, and starts the service. Nothing
-else is required.
+On Arch, the installer handles system dependencies (`llama-cpp`, `python`, `curl`, `sqlite`,
+`ripgrep`), creates the service user if needed, installs the app, downloads and verifies the
+model, and starts the service — nothing else is required.
+
+On any other Linux, install those same packages with your distro's package manager
+(`apt`, `dnf`, `zypper`, …) — anything providing `llama-server`, Python 3.11+, `curl`,
+`sqlite3` and `ripgrep` — then use the manual install below. Everything above the OS package
+layer is portable.
 
 To install manually from a local checkout instead:
 
