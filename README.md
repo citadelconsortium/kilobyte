@@ -61,7 +61,8 @@ In-TUI commands:
 |---|---|
 | `/effort high\|medium\|low` | Trade reply depth and tool-step budget for speed |
 | `/chats` · `/chat <n>` | List past sessions and resume one |
-| `/cloud <question>` | Send one message to a configured cloud model |
+| `/cloud [question]` | Set up or use a cloud model — pick a provider, paste an API key |
+| `/switch` | Flip between the cloud provider and local Kilo (Kilo is the default) |
 | `/agent <name>` | Force a specialist mode (research, coding, security, systems, conversation) |
 | `/new` · `/clear` · `/help` · `/quit` | Session and screen control |
 
@@ -135,6 +136,11 @@ can be sent to a hosted model on purpose:
 /cloud summarise this architecture and find the weak points
 /cloud openrouter <question>          # pick a specific provider
 ```
+
+Easiest: just type `/cloud` in the TUI, pick a provider from the list and paste your
+API key — the base URL and a sensible default model are filled in for you, and the
+provider is saved (0600) and made the default. `/switch` then flips the active brain
+between that provider and local Kilo; Kilo is always the default.
 
 Configure providers in `/etc/kilobyte/providers.json` (see `config/providers.example.json`):
 

@@ -60,6 +60,23 @@ class RPCServer:
             elif command == "session_history":
                 sid = str(request.get("session_id", ""))
                 await self._send(writer, {"type": "result", "data": {"messages": self.memory.history(sid, 200)}})
+            elif command == "providers_catalog":
+                from .providers import KNOWN_PROVIDERS
+                configured = self.agent.providers.providers()
+                await self._send(writer, {"type": "result", "data": {
+                    "known": {n: {"label": v["label"], "model": v["model"]} for n, v in KNOWN_PROVIDERS.items()},
+                    "configured": sorted(configured),
+                    "default": self.agent.providers.default_name(),
+                }})
+            elif command == "configure_provider":
+                try:
+                    prov = self.agent.providers.configure(
+                        str(request.get("name", "")), str(request.get("api_key", "")),
+                        request.get("model") or None,
+                    )
+                    await self._send(writer, {"type": "result", "data": {"ok": True, "label": prov.label, "name": prov.name}})
+                except Exception as exc:
+                    await self._send(writer, {"type": "result", "data": {"ok": False, "error": str(exc)}})
             elif command == "chat":
                 async def permission(capability: str, detail: str, risk: Risk) -> bool:
                     permission_id = uuid.uuid4().hex

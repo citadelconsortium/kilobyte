@@ -101,6 +101,13 @@ class KiloApp:
         self.forced_profile = ""      # set by /agent; overrides auto-selection
         self._sessions: list[dict[str, Any]] = []
         self._active: asyncio.Task | None = None
+        # Cloud escalation state. Local Kilo is always the default; /switch flips the
+        # active brain to the last-configured cloud provider and back.
+        self.cloud_active = False
+        self.cloud_provider = ""
+        self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
+        self._catalog: dict[str, Any] = {}
+        self._cloud_options: list[tuple[str, dict[str, Any]]] = []
 
         self.output = TextArea(
             text="", read_only=True, scrollbar=True, wrap_lines=True,
@@ -170,6 +177,8 @@ class KiloApp:
             ("class:stat.k", "   🔧 tools "), ("class:stat", f"{self.tools_used}"),
             ("class:stat.k", "   ⇥ tokens "), ("class:stat", f"{self.tokens}"),
             ("class:stat.k", "   effort "), ("class:stat", f"{self.effort}"),
+            ("class:stat.k", "   ⬡ "),
+            ("class:kilo", f"cloud·{self.cloud_provider}" if self.cloud_active else "kilo"),
         ]
         if self.agent_name:
             bar += [("class:stat.k", "   ◆ "), ("class:kilo", self.agent_name)]
@@ -226,6 +235,11 @@ class KiloApp:
         # Returning False clears the input for the next message.
         if not text:
             return False
+        # An awaited answer (cloud provider pick or API key) is consumed here rather than
+        # being sent to the model. Returning False also wipes the key from the input line.
+        if self._pending is not None:
+            asyncio.create_task(self._resume_pending(text))
+            return False
         if self._handle_command(text):
             return False
         self._append(f"\n{_you(text)}\n\n")
@@ -251,7 +265,8 @@ class KiloApp:
                 "  /agent <name>|off         force research|coding|security|systems, or auto\n"
                 "  /chats                    list past sessions to resume\n"
                 "  /chat <n>                 open a past session by number\n"
-                "  /cloud <question>         send one message to a cloud model\n"
+                "  /cloud [question]         set up / use a cloud model (key selector)\n"
+                "  /switch                   flip between cloud and local Kilo (Kilo default)\n"
                 "  /new · /clear · /quit\n"
                 "keys: F2 runtime panel · Ctrl-C cancel · Ctrl-Q quit\n"
             )
@@ -287,12 +302,27 @@ class KiloApp:
             return True
         if text.startswith("/cloud"):
             rest = text[len("/cloud"):].strip()
+            # No provider yet: run the pick-and-key setup, carrying any question along.
+            if not self.cloud_provider:
+                asyncio.create_task(self._cloud_setup(pending_question=rest or None))
+                return True
             if not rest:
-                self._append("\n— usage: /cloud <question> —\n")
+                self._append(
+                    f"\n— cloud provider: {self.cloud_provider}. /switch to route here, "
+                    f"or /cloud <question> for one message —\n"
+                )
                 return True
             self._append(f"\n{_you(rest)}\n\n")
             self.tokens = self.tools_used = 0
-            self._active = asyncio.create_task(self._ask(rest, provider=""))
+            self._active = asyncio.create_task(self._ask(rest, provider=self.cloud_provider))
+            return True
+        if text == "/switch":
+            if not self.cloud_provider:
+                self._append("\n— no cloud provider yet; run /cloud to set one up —\n")
+                return True
+            self.cloud_active = not self.cloud_active
+            where = f"cloud · {self.cloud_provider}" if self.cloud_active else "local · Kilo"
+            self._append(f"\n— switched to {where} —\n")
             return True
         return False
 
@@ -330,7 +360,73 @@ class KiloApp:
             self._append(f"\n{_you(m['content']) if m['role']=='user' else m['content']}\n")
         self._append("\n— continue below —\n")
 
+    async def _cloud_setup(self, pending_question: str | None = None) -> None:
+        """Show the provider catalog and await a pick. Users only ever supply an API key:
+        the base URL and default model come from the catalog."""
+        try:
+            data = await self.client.request("providers_catalog")
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ could not load providers: {exc}\n")
+            return
+        self._catalog = data
+        self._cloud_options = list((data.get("known") or {}).items())
+        configured = set(data.get("configured", []))
+        lines = ["\n☁ choose a cloud provider — type its number, then paste your API key:"]
+        for i, (name, meta) in enumerate(self._cloud_options, 1):
+            mark = "  ✓ configured" if name in configured else ""
+            lines.append(f"  {i:>2}. {meta['label']:<12} {meta.get('model','')}{mark}")
+        lines.append("  (type the number or name · blank line cancels)")
+        self._append("\n".join(lines) + "\n")
+        self._pending = {"kind": "cloud_pick", "question": pending_question}
+
+    def _run_cloud(self, name: str, question: str | None) -> None:
+        """Activate a configured provider and, if a question was queued, send it now."""
+        self.cloud_provider = name
+        self.cloud_active = True
+        self._append(f"\n— routing to cloud · {name} (use /switch for local Kilo) —\n")
+        if question:
+            self._append(f"\n{_you(question)}\n\n")
+            self.tokens = self.tools_used = 0
+            self._active = asyncio.create_task(self._ask(question, provider=name))
+
+    async def _resume_pending(self, text: str) -> None:
+        pending = self._pending or {}
+        self._pending = None
+        kind = pending.get("kind")
+        if kind == "cloud_pick":
+            name = None
+            names = [n for n, _ in self._cloud_options]
+            if text.isdigit() and 1 <= int(text) <= len(names):
+                name = names[int(text) - 1]
+            elif text.strip().lower() in names:
+                name = text.strip().lower()
+            if not name:
+                self._append("\n— cancelled cloud setup —\n")
+                return
+            if name in set(self._catalog.get("configured", [])):
+                self._run_cloud(name, pending.get("question"))
+                return
+            self._append(f"\n☁ paste your {name} API key and press Enter:\n")
+            self._pending = {"kind": "cloud_key", "name": name, "question": pending.get("question")}
+            return
+        if kind == "cloud_key":
+            name = pending["name"]
+            try:
+                res = await self.client.request("configure_provider", name=name, api_key=text)
+            except (ConnectionError, FileNotFoundError, OSError) as exc:
+                self._append(f"\n⚠ could not save key: {exc}\n")
+                return
+            if not res.get("ok"):
+                self._append(f"\n⚠ {res.get('error', 'could not configure provider')}\n")
+                return
+            self._append(f"\n✓ {res.get('label', name)} configured.\n")
+            self._run_cloud(name, pending.get("question"))
+
     async def _ask(self, text: str, provider: str | None = None) -> None:
+        # A plain message follows the active brain: local Kilo by default, the last cloud
+        # provider after /switch.
+        if provider is None and self.cloud_active and self.cloud_provider:
+            provider = self.cloud_provider
         self.busy = True
         self.streaming = False
         self.agent_name = ""

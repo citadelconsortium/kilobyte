@@ -73,3 +73,33 @@ class ProviderConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProviderConfigureTests(unittest.TestCase):
+    def test_configure_from_just_a_key_uses_catalog_and_sets_default(self):
+        """A user supplies only an API key; base_url and model come from the catalog, and
+        the provider becomes the default so /cloud reaches it immediately."""
+        with tempfile.TemporaryDirectory() as raw:
+            registry = ProviderRegistry(Path(raw) / "providers.json")
+            prov = registry.configure("openrouter", "sk-or-test123")
+            self.assertEqual(prov.name, "openrouter")
+            self.assertTrue(prov.base_url.startswith("https://"))
+            self.assertTrue(prov.model)
+            self.assertEqual(registry.default_name(), "openrouter")
+            self.assertIn("openrouter", registry.providers())
+
+    def test_configure_rejects_empty_key(self):
+        with tempfile.TemporaryDirectory() as raw:
+            registry = ProviderRegistry(Path(raw) / "providers.json")
+            with self.assertRaises(ProviderError):
+                registry.configure("openrouter", "   ")
+
+    def test_configure_writes_600_and_persists(self):
+        import os, stat
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "providers.json"
+            ProviderRegistry(path).configure("groq", "gsk-test")
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+            self.assertEqual(mode, 0o600)
+            # A fresh registry reading the same file sees it (live, no restart).
+            self.assertIn("groq", ProviderRegistry(path).providers())
