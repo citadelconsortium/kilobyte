@@ -203,10 +203,13 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
     tokenizer.save_pretrained(str(adapter))
 
     log("merging adapter into the base weights")
+    log("training complete; merging adapter")
     merged_model = model.merge_and_unload()
     merged = out_dir / "merged"
+    log("saving merged weights (~3 GB, this takes a few minutes)")
     merged_model.save_pretrained(str(merged), safe_serialization=True)
     tokenizer.save_pretrained(str(merged))
+    log("merged weights saved")
     (out_dir / "MERGED_READY.txt").write_text(
         "Merged HF weights are ready. Convert to GGUF with convert_gguf.sh on a machine with llama.cpp.\n"
     )

@@ -100,7 +100,27 @@ GENERAL = Profile(
     ),
 )
 
-PROFILES: dict[str, Profile] = {p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL)}
+CONVERSATION = Profile(
+    name="conversation",
+    hint="understand intent, then follow through to a finished answer",
+    instructions=(
+        "Conversation mode. Understand what the user actually wants, then deliver it.\n"
+        "- Read the request for its real intent, not just its words. If it is ambiguous in a\n"
+        "  way that changes the answer, ask one short clarifying question; otherwise take the\n"
+        "  most reasonable reading and proceed — do not stall on trivia.\n"
+        "- If you plainly know the answer (a fact, arithmetic, a definition), just give it,\n"
+        "  confidently and directly. Do not hedge on what you obviously know.\n"
+        "- Never announce an action instead of doing it. Do not reply 'let me calculate' or\n"
+        "  'I'll check' and stop — either call the tool now or give the answer now.\n"
+        "- Carry the task to a finished result before you reply. If it takes several steps,\n"
+        "  do them; stopping half-way with a promise is a failure, not an answer.\n"
+        "- Keep the reply tight and useful: the answer first, then only what is needed."
+    ),
+)
+
+PROFILES: dict[str, Profile] = {
+    p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL, CONVERSATION)
+}
 
 # Keyword hints for auto-selecting a profile when the user has not named one. Deliberately
 # conservative: an unclear request falls through to general rather than a wrong specialist.
@@ -114,11 +134,13 @@ _ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 def select(text: str, explicit: str | None = None) -> Profile:
     """Choose a profile for a request. An explicitly named profile always wins; otherwise
-    match keywords, and fall back to general when nothing clearly fits."""
+    match keywords, and fall back to the conversation agent when nothing clearly fits — so
+    even an unrouted request gets intent-understanding and follow-through discipline instead
+    of the model being left to trail off."""
     if explicit and explicit in PROFILES:
         return PROFILES[explicit]
     lowered = text.lower()
     for name, words in _ROUTES:
         if any(word in lowered for word in words):
             return PROFILES[name]
-    return GENERAL
+    return CONVERSATION

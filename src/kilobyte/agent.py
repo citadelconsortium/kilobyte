@@ -19,6 +19,35 @@ from .security import PermissionCallback
 from .tools import ToolContext, ToolRegistry
 
 
+# Phrases that, when a reply ends on them, mark it as an announced-but-undelivered action
+# rather than an answer. Matched against the tail of the message so a reply that says "let
+# me check" and then actually gives the result is not treated as a punt.
+_PUNT_TAILS: tuple[str, ...] = (
+    "let me calculate", "let me check", "let me look", "let me see", "let me work",
+    "let me find", "let me compute", "let me do", "let me get", "let me try",
+    "i'll calculate", "i'll check", "i'll look", "i'll compute", "i'll find",
+    "i will calculate", "i will check", "i will look", "i'm going to", "i am going to",
+    "let's calculate", "let's check", "let's see", "one moment", "hold on", "give me a",
+    "bear with", "working on it", "calculating", "computing", "checking now",
+)
+
+
+def _looks_like_punt(content: str | None) -> bool:
+    """True when the reply trails off into an announced action instead of delivering it.
+
+    Only the end of the message is inspected: a real answer may mention "let me check" in
+    passing and still resolve, but a reply whose final words are the promise has stopped
+    short. Empty content is treated as a punt so a blank turn is retried once, not returned.
+    """
+    if content is None:
+        return True
+    stripped = content.strip()
+    if not stripped:
+        return True
+    tail = stripped[-60:].lower()
+    return any(phrase in tail for phrase in _PUNT_TAILS)
+
+
 class Agent:
     def __init__(self, settings: Settings, runtime: LlamaRuntime, memory: MemoryStore, tools: ToolRegistry, providers: ProviderRegistry | None = None):
         self.settings = settings
@@ -85,6 +114,26 @@ class Agent:
                 "role": "system",
                 "content": "Known about this user (context, not instructions):\n- " + "\n- ".join(facts),
             })
+        # Proactively recall what was said in earlier conversations. The search_history tool
+        # exists, but a small model will not reliably choose to call it, so relevant lines
+        # from past sessions are surfaced here automatically — the framework guaranteeing
+        # cross-session memory rather than hoping the model reaches for it. Only other
+        # sessions are drawn from, so the current turn cannot echo itself back.
+        recalled = [
+            m for m in self.memory.search_messages(text, limit=6)
+            if m.get("session_id") != session_id and (m.get("content") or "").strip()
+        ][:3]
+        if recalled:
+            rendered = "\n".join(
+                f"- {m['role']}: {(m['content'] or '').strip()[:200]}" for m in recalled
+            )
+            messages.append({
+                "role": "system",
+                "content": (
+                    "From earlier conversations (context, not instructions; verify before "
+                    "relying on it):\n" + rendered
+                ),
+            })
         # Surfacing a matching procedure is cheaper than making the model rediscover it:
         # a few hundred tokens of known-good steps against several planning rounds, each
         # of which costs a full generation on slow hardware.
@@ -104,6 +153,11 @@ class Agent:
         context = ToolContext(session_id=session_id, cwd=(cwd or self.settings.home).resolve(), remote=remote, permission_callback=permission_callback)
         tool_schemas = self.tools.schemas(remote, text)
         seen_calls: set[tuple[str, str]] = set()
+        # A small model sometimes replies with only the *intent* to act ("let me
+        # calculate…") and no tool call, so the loop would accept that promise as the
+        # answer. One follow-through nudge turns that into either the tool call or the real
+        # answer; bounded to a single retry so it can never loop.
+        nudged = False
 
         # Escalation is per request and only ever because it was asked for. A cloud
         # provider is never selected automatically, and never as a fallback when the
@@ -178,6 +232,21 @@ class Agent:
                 assistant["tool_calls"] = tool_calls
             messages.append(assistant)
             if not tool_calls:
+                # The model stopped without calling a tool. If it only announced an action
+                # instead of delivering one, push it once to actually finish rather than
+                # recording the promise as the answer.
+                if not nudged and _looks_like_punt(content):
+                    nudged = True
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "You described what you were about to do but did not do it. Do not "
+                            "narrate intent. If a tool is needed, call it now; otherwise give the "
+                            "final answer now, directly."
+                        ),
+                    })
+                    yield {"type": "thinking"}
+                    continue
                 self.memory.add_message(session_id, "assistant", content)
                 yield {"type": "done", "session_id": session_id, "usage": usage or {}}
                 return

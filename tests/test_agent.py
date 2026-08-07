@@ -55,7 +55,72 @@ class DuplicateToolRuntime:
             yield {"delta": {"content": "Linux, 2 CPUs"}}
 
 
+class PuntingRuntime:
+    """First turn only announces an action; after the nudge it delivers the answer."""
+
+    def __init__(self):
+        self.payloads = []
+
+    async def ensure_ready(self):
+        pass
+
+    async def chat_stream(self, payload):
+        self.payloads.append([dict(m) for m in payload["messages"]])
+        if len(self.payloads) == 1:
+            yield {"delta": {"content": "Sure — let me calculate"}}
+        else:
+            yield {"delta": {"content": "1+1 is 2."}}
+
+
 class AgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_announced_action_is_nudged_to_completion(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            settings = Settings(data_dir=root, config_dir=root, runtime_dir=root, log_dir=root, home=root)
+            memory = MemoryStore(root / "memory.db")
+            tools = ToolRegistry(settings, memory, PermissionManager(root / "policy.json"))
+            runtime = PuntingRuntime()
+            agent = Agent(settings, runtime, memory, tools)  # type: ignore[arg-type]
+            events = [event async for event in agent.run("what is 1+1")]
+            answer = "".join(e.get("text", "") for e in events)
+            self.assertIn("1+1 is 2.", answer)
+            # It took a second turn, and the punt was not what got saved.
+            self.assertEqual(len(runtime.payloads), 2)
+            self.assertEqual(memory.history(events[0]["session_id"])[-1]["content"], "1+1 is 2.")
+            # The follow-through nudge was injected as a system message before the retry.
+            self.assertTrue(any(
+                m["role"] == "system" and "did not do it" in m.get("content", "")
+                for m in runtime.payloads[1]
+            ))
+            memory.close()
+
+    async def test_nudge_happens_at_most_once(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            settings = Settings(data_dir=root, config_dir=root, runtime_dir=root, log_dir=root, home=root)
+            memory = MemoryStore(root / "memory.db")
+            tools = ToolRegistry(settings, memory, PermissionManager(root / "policy.json"))
+
+            class AlwaysPunts:
+                def __init__(self):
+                    self.calls = 0
+
+                async def ensure_ready(self):
+                    pass
+
+                async def chat_stream(self, payload):
+                    self.calls += 1
+                    yield {"delta": {"content": "let me check"}}
+
+            runtime = AlwaysPunts()
+            agent = Agent(settings, runtime, memory, tools)  # type: ignore[arg-type]
+            events = [event async for event in agent.run("do the thing")]
+            # Nudged once, then accepted — not an infinite loop.
+            self.assertEqual(runtime.calls, 2)
+            self.assertTrue(any(e["type"] == "done" for e in events))
+            memory.close()
+
+
     async def test_tool_loop_streams_and_persists(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

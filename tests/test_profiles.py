@@ -1,6 +1,6 @@
 import unittest
 
-from kilobyte.profiles import GENERAL, PROFILES, select
+from kilobyte.profiles import CONVERSATION, PROFILES, select
 
 
 class ProfileSelectionTests(unittest.TestCase):
@@ -13,8 +13,10 @@ class ProfileSelectionTests(unittest.TestCase):
         self.assertEqual(select("run an nmap recon on the host").name, "security")
         self.assertEqual(select("why did the systemd service fail").name, "systems")
 
-    def test_unclear_request_falls_back_to_general(self):
-        self.assertEqual(select("tell me a joke").name, "general")
+    def test_unclear_request_falls_back_to_conversation(self):
+        # An unrouted request gets the conversation agent, not a bare general prompt, so it
+        # still carries intent-understanding and follow-through discipline.
+        self.assertEqual(select("tell me a joke").name, "conversation")
 
     def test_every_profile_has_grounding_language(self):
         # Each specialist must push toward evidence, not memory.
@@ -27,8 +29,13 @@ class ProfileSelectionTests(unittest.TestCase):
                 f"{name} profile lacks grounding language",
             )
 
-    def test_general_is_the_default(self):
-        self.assertIs(select(""), GENERAL)
+    def test_conversation_is_the_default(self):
+        self.assertIs(select(""), CONVERSATION)
+
+    def test_conversation_agent_teaches_follow_through(self):
+        text = CONVERSATION.instructions.lower()
+        self.assertIn("finished result", text)
+        self.assertIn("never announce an action", text)
 
 
 if __name__ == "__main__":

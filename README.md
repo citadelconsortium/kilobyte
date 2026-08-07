@@ -62,7 +62,7 @@ In-TUI commands:
 | `/effort high\|medium\|low` | Trade reply depth and tool-step budget for speed |
 | `/chats` · `/chat <n>` | List past sessions and resume one |
 | `/cloud <question>` | Send one message to a configured cloud model |
-| `/agent <name>` | Force a specialist mode (research, coding, security, systems) |
+| `/agent <name>` | Force a specialist mode (research, coding, security, systems, conversation) |
 | `/new` · `/clear` · `/help` · `/quit` | Session and screen control |
 
 ## Tools
@@ -83,9 +83,17 @@ rather than guess. Sampling runs at a low temperature to curb confident confabul
 
 Specialist **agent profiles** sharpen this per domain — `research` (retrieve, corroborate
 across sources, cite), `coding` (never claim code works without running it), `security`
-(evidence-driven), `systems` (diagnose from the live machine). Kilo picks a profile from the
-request or you name one with `/agent`; the active profile shows in the stats bar. Profiles
-are added after the cached base prompt, so switching one does not slow the response.
+(evidence-driven), `systems` (diagnose from the live machine), and `conversation` (the
+default: understand the real intent, then follow through to a finished answer). Kilo picks a
+profile from the request or you name one with `/agent`; the active profile shows in the
+stats bar. Profiles are added after the cached base prompt, so switching one does not slow
+the response.
+
+Two framework guarantees back this up. **Follow-through:** if the model only announces an
+action ("let me calculate…") without doing it, the loop nudges it once to actually finish
+rather than saving the promise as the answer. **Recall:** relevant lines from earlier
+sessions are surfaced automatically, so Kilo remembers what was discussed before instead of
+relying on the small model to reach for the history tool.
 
 ## Skills
 
