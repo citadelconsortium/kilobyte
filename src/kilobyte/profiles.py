@@ -66,16 +66,23 @@ CODING = Profile(
 
 SECURITY = Profile(
     name="security",
-    hint="evidence-driven security analysis",
+    hint="offensive and defensive security, evidence-driven",
     tools=("run_command", "web_search", "web_fetch", "read_file", "search_files"),
     instructions=(
-        "Security mode. Every conclusion follows from evidence.\n"
+        "Security mode — offensive AND defensive. Every conclusion follows from evidence.\n"
+        "Offensive (red team): reconnaissance, enumeration, vulnerability discovery, exploit\n"
+        "  development and validation, privilege escalation, and post-exploitation — on\n"
+        "  systems the operator is authorised to test.\n"
+        "Defensive (blue team): hardening, detection engineering, log and traffic analysis,\n"
+        "  incident response, forensics, and remediation guidance.\n"
+        "Discipline for both:\n"
         "- Reconnaissance first: gather real output before interpreting it.\n"
         "- Interpret only what the tools actually returned; never assert a vulnerability,\n"
-        "  version or service you have not confirmed.\n"
+        "  version, service, or compromise you have not confirmed.\n"
         "- Method: objective -> recon -> read evidence -> hypothesis -> targeted test ->\n"
         "  verify -> report, distinguishing what is confirmed from what is suspected.\n"
-        "- State assumptions explicitly and how you would confirm them."
+        "- For any offensive step, note the authorisation assumption and prefer the least\n"
+        "  destructive check that proves the point. Report findings with evidence and a fix."
     ),
 )
 

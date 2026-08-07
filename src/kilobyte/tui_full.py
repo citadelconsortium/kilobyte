@@ -108,6 +108,10 @@ class KiloApp:
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
         self._catalog: dict[str, Any] = {}
         self._cloud_options: list[tuple[str, dict[str, Any]]] = []
+        # Strong refs to spawned background tasks. Without this, asyncio can garbage-
+        # collect a task that is awaiting (e.g. an RPC round-trip) and silently cancel
+        # it mid-run — which is why the /cloud setup appeared to do nothing.
+        self._bg_tasks: set[asyncio.Task] = set()
 
         self.output = TextArea(
             text="", read_only=True, scrollbar=True, wrap_lines=True,
@@ -223,6 +227,12 @@ class KiloApp:
         ])
         self.layout = Layout(root, focused_element=self.input)
 
+    def _spawn(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
+
     def _append(self, text: str) -> None:
         buff = self.output.buffer
         new = buff.text + text
@@ -238,7 +248,7 @@ class KiloApp:
         # An awaited answer (cloud provider pick or API key) is consumed here rather than
         # being sent to the model. Returning False also wipes the key from the input line.
         if self._pending is not None:
-            asyncio.create_task(self._resume_pending(text))
+            self._spawn(self._resume_pending(text))
             return False
         if self._handle_command(text):
             return False
@@ -272,10 +282,10 @@ class KiloApp:
             )
             return True
         if text == "/chats":
-            asyncio.create_task(self._list_chats())
+            self._spawn(self._list_chats())
             return True
         if text.startswith("/chat "):
-            asyncio.create_task(self._open_chat(text.split(maxsplit=1)[1].strip()))
+            self._spawn(self._open_chat(text.split(maxsplit=1)[1].strip()))
             return True
         if text.startswith("/agent"):
             parts = text.split()
@@ -306,7 +316,7 @@ class KiloApp:
             rest = text[len("/cloud"):].strip()
             # No provider yet: run the pick-and-key setup, carrying any question along.
             if not self.cloud_provider:
-                asyncio.create_task(self._cloud_setup(pending_question=rest or None))
+                self._spawn(self._cloud_setup(pending_question=rest or None))
                 return True
             if not rest:
                 self._append(
