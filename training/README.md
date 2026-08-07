@@ -1,5 +1,10 @@
 # Kilobyte training pipeline
 
+> **Maintainer-only.** End users never train. Installing Kilo downloads one prebuilt,
+> checksum-pinned `kilobyte.gguf`; this pipeline is only how the maintainer *produces*
+> or updates that single canonical brain. There is one brain, trained once, shared by
+> every install.
+
 This directory builds the one canonical Kilobyte brain: a QLoRA fine-tune of a small,
 strong open-weight instruct base into `kilobyte.gguf`. Kaggle is the training factory;
 Kilo is the runtime. Training never deploys automatically — a new brain is a **candidate**

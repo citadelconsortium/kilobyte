@@ -182,9 +182,15 @@ escalation is not available over Telegram.
 
 ## The brain
 
-Kilo runs one canonical `kilobyte.gguf`. A newly trained brain is a **candidate** and
-never overwrites the running one until it passes evaluation and is explicitly promoted;
-the previous brain is always kept for rollback.
+**There is exactly one Kilobyte brain, trained once.** It is a single canonical
+`kilobyte.gguf` that the maintainer produces and distributes as a prebuilt, checksum-pinned
+file. **Installing Kilo never trains anything** — the installer only *downloads* that one
+brain and verifies its SHA-256. Every machine runs the same weights; nothing is generated
+per install.
+
+Once installed, a brain can still be upgraded deliberately. A newly built brain is a
+**candidate** and never overwrites the running one until it passes evaluation and is
+explicitly promoted; the previous brain is always kept for rollback.
 
 ```bash
 kilo brain status                          # current / candidate / previous
@@ -193,10 +199,11 @@ kilo brain promote                         # current → previous, candidate →
 kilo brain rollback                        # restore previous after a bad promotion
 ```
 
-Training the brain is a separate, reproducible pipeline in [`training/`](training/README.md):
-build and validate the dataset on CPU, fine-tune with QLoRA on Kaggle's GPU, convert and
-quantise to GGUF, evaluate against a fixed suite, then stage and promote. Nothing deploys
-automatically.
+Training is a **maintainer-only** activity, not part of using or installing Kilo. It is a
+separate, reproducible pipeline in [`training/`](training/README.md): build and validate the
+dataset on CPU, fine-tune with QLoRA on Kaggle's GPU, convert and quantise to GGUF, evaluate
+against a fixed suite, then stage and promote to produce a new canonical brain. End users
+never run it — they just receive the finished `kilobyte.gguf`.
 
 ## Documentation
 
