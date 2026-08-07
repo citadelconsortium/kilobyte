@@ -112,6 +112,8 @@ class KiloApp:
         # collect a task that is awaiting (e.g. an RPC round-trip) and silently cancel
         # it mid-run — which is why the /cloud setup appeared to do nothing.
         self._bg_tasks: set[asyncio.Task] = set()
+        self._queue: asyncio.Queue | None = None   # pending (text, provider) requests
+        self._worker: asyncio.Task | None = None
 
         self.output = TextArea(
             text="", read_only=True, scrollbar=True, wrap_lines=True,
@@ -186,6 +188,9 @@ class KiloApp:
         ]
         if self.agent_name:
             bar += [("class:stat.k", "   ◆ "), ("class:kilo", self.agent_name)]
+        qn = self._queue.qsize() if getattr(self, "_queue", None) else 0
+        if qn:
+            bar += [("class:stat.k", "   ⧉ queued "), ("class:stat", f"{qn}")]
         return bar
 
     def _panel_text(self):
@@ -233,6 +238,28 @@ class KiloApp:
         task.add_done_callback(self._bg_tasks.discard)
         return task
 
+    async def _worker_loop(self) -> None:
+        """Process queued requests one at a time. There is a single inference slot, so
+        running requests concurrently clobbers shared state and loses output — which
+        looked like 'some messages never responded'. Serialising fixes that."""
+        while True:
+            text, provider = await self._queue.get()
+            try:
+                await self._ask(text, provider)
+            except Exception as exc:  # noqa: BLE001
+                self._append(f"\n⚠ {exc}\n")
+            finally:
+                self._queue.task_done()
+                self.app.invalidate()
+
+    def _enqueue(self, text: str, provider: str | None = None) -> None:
+        self._append(f"\n{_you(text)}\n\n")
+        ahead = (self._queue.qsize() if self._queue else 0) + (1 if self.busy else 0)
+        if ahead > 0:
+            self._append(f"⏳ queued — {ahead} task(s) ahead\n")
+        if self._queue is not None:
+            self._queue.put_nowait((text, provider))
+
     def _append(self, text: str) -> None:
         buff = self.output.buffer
         new = buff.text + text
@@ -252,9 +279,7 @@ class KiloApp:
             return False
         if self._handle_command(text):
             return False
-        self._append(f"\n{_you(text)}\n\n")
-        self.tokens = self.tools_used = 0
-        self._active = asyncio.create_task(self._ask(text))
+        self._enqueue(text)
         return False
 
     def _handle_command(self, text: str) -> bool:
@@ -324,9 +349,7 @@ class KiloApp:
                     f"or /cloud <question> for one message —\n"
                 )
                 return True
-            self._append(f"\n{_you(rest)}\n\n")
-            self.tokens = self.tools_used = 0
-            self._active = asyncio.create_task(self._ask(rest, provider=self.cloud_provider))
+            self._enqueue(rest, provider=self.cloud_provider)
             return True
         if text == "/switch":
             if not self.cloud_provider:
@@ -397,9 +420,7 @@ class KiloApp:
         self.cloud_active = True
         self._append(f"\n— routing to cloud · {name} (use /switch for local Kilo) —\n")
         if question:
-            self._append(f"\n{_you(question)}\n\n")
-            self.tokens = self.tools_used = 0
-            self._active = asyncio.create_task(self._ask(question, provider=name))
+            self._enqueue(question, provider=name)
 
     async def _resume_pending(self, text: str) -> None:
         pending = self._pending or {}
@@ -440,6 +461,8 @@ class KiloApp:
         if provider is None and self.cloud_active and self.cloud_provider:
             provider = self.cloud_provider
         self.busy = True
+        self._active = asyncio.current_task()
+        self.tokens = self.tools_used = 0
         self.streaming = False
         self.agent_name = ""
         self.phase = "thinking"
@@ -559,11 +582,14 @@ class KiloApp:
             full_screen=True,
             mouse_support=True,
         )
+        self._queue = asyncio.Queue()
+        self._worker = asyncio.create_task(self._worker_loop())
         ticker = asyncio.create_task(self._tick())
         try:
             await self.app.run_async()
         finally:
             ticker.cancel()
+            self._worker.cancel()
 
 
 def _you(text: str) -> str:

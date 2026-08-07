@@ -49,6 +49,29 @@ class CloudFlowTests(unittest.IsolatedAsyncioTestCase):
         await t
         self.assertNotIn(t, app._bg_tasks)
 
+    async def test_queue_processes_requests_sequentially(self):
+        import types
+        app = KiloApp(FakeClient())
+        app.app = types.SimpleNamespace(invalidate=lambda: None)  # run() supplies the real one
+        app._queue = asyncio.Queue()
+        order = []
+        active = []
+
+        async def fake_ask(text, provider=None):
+            active.append(text)
+            self.assertEqual(len(active), 1, "two requests ran at once")
+            await asyncio.sleep(0.01)
+            order.append(text)
+            active.remove(text)
+
+        app._ask = fake_ask
+        worker = asyncio.create_task(app._worker_loop())
+        for msg in ("a", "b", "c"):
+            app._enqueue(msg)
+        await asyncio.wait_for(app._queue.join(), timeout=2)
+        worker.cancel()
+        self.assertEqual(order, ["a", "b", "c"])  # in order, never overlapping
+
 
 if __name__ == "__main__":
     unittest.main()
