@@ -13,10 +13,18 @@ KILO_USER="${KILOBYTE_USER:-kilobyte}"
 KILO_GROUP="$(id -gn "$KILO_USER" 2>/dev/null || echo "$KILO_USER")"
 
 if command -v pacman >/dev/null; then
-    pacman -Sy --needed --noconfirm llama-cpp python curl sqlite ripgrep
+    # python-prompt_toolkit backs the full-screen terminal UI; the rest are the runtime.
+    pacman -Sy --needed --noconfirm llama-cpp python python-prompt_toolkit curl sqlite ripgrep
 fi
 command -v python >/dev/null
 command -v llama-server >/dev/null || { echo "Install llama-cpp first." >&2; exit 1; }
+# The TUI needs prompt_toolkit. Prefer the distro package (installed above); fall back to
+# pip so a non-Arch host still gets a working interface.
+if ! python -c "import prompt_toolkit" 2>/dev/null; then
+    python -m pip install --break-system-packages prompt_toolkit 2>/dev/null \
+        || python -m pip install prompt_toolkit \
+        || echo "warning: prompt_toolkit missing; the TUI will use the simple fallback UI" >&2
+fi
 
 if ! id "$KILO_USER" >/dev/null 2>&1; then
     if [[ "$KILO_USER" == "kilobyte" ]]; then

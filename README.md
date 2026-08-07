@@ -46,20 +46,46 @@ Telegram naturally require a network.
 | `kilo start` / `stop` / `restart` | Service control |
 | `kilo version` | Framework version |
 
-Inside the TUI: `/help`, `/status`, `/new`, `/clear`, `/exit`. Ctrl-C cancels the running
-generation without leaving the session; a second one, or `/exit`, leaves.
+### The interface
 
-The interface streams tokens live and shows what Kilo is doing — the current action, how long
-it has been running, the model, each tool with its arguments and duration, and a closing summary
-with total time, time to first token, and which tools ran.
+Running `kilo` opens a full-screen terminal app (built on `prompt_toolkit`): a banner with
+live status on top, a scrollable conversation that streams token by token, a stats bar
+showing the current action with live numeric counters (runtime, tools used, tokens), and an
+input box at the bottom. **F2** toggles a runtime panel; **Ctrl-C** cancels the running
+generation without leaving; **Ctrl-Q** quits. On a terminal without `prompt_toolkit` it falls
+back to a streaming line-based UI automatically.
+
+In-TUI commands:
+
+| Command | Purpose |
+|---|---|
+| `/effort high\|medium\|low` | Trade reply depth and tool-step budget for speed |
+| `/chats` · `/chat <n>` | List past sessions and resume one |
+| `/cloud <question>` | Send one message to a configured cloud model |
+| `/agent <name>` | Force a specialist mode (research, coding, security, systems) |
+| `/new` · `/clear` · `/help` · `/quit` | Session and screen control |
 
 ## Tools
 
 `read_file`, `write_file`, `list_files`, `search_files`, `run_command`, `system_info`,
-`web_search`, `web_fetch`, `remember`, `recall`, `save_skill`, `list_skills`.
+`web_search`, `web_fetch`, `remember`, `recall`, `save_skill`, `list_skills`,
+`search_history`. MCP servers can add more.
 
 Results are compacted before reaching the model, so a large directory listing or command output
 cannot displace the conversation.
+
+## Grounding — how Kilo avoids nonsense
+
+A small local model cannot be made not to hallucinate by weights alone, so the framework
+forces it to work from evidence. The system prompt requires Kilo to get facts with a tool
+rather than recall them, never to invent output or results, and to say it is not certain
+rather than guess. Sampling runs at a low temperature to curb confident confabulation.
+
+Specialist **agent profiles** sharpen this per domain — `research` (retrieve, corroborate
+across sources, cite), `coding` (never claim code works without running it), `security`
+(evidence-driven), `systems` (diagnose from the live machine). Kilo picks a profile from the
+request or you name one with `/agent`; the active profile shows in the stats bar. Profiles
+are added after the cached base prompt, so switching one does not slow the response.
 
 ## Skills
 
