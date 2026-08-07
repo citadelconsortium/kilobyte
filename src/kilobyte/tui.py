@@ -169,9 +169,11 @@ class TerminalUI:
             elapsed = now - state["started"]
             glyph = SPINNER[frame % len(SPINNER)]
             phase = state["phase"] or ACTIVITY_WORDS[(frame // 12) % len(ACTIVITY_WORDS)]
+            # Trailing dots drift under the word so a long, quiet step still looks alive.
+            dots = ("." * ((frame // 3) % 4)).ljust(3)
             model = state.get("model") or "local brain"
             sys.stdout.write(
-                f"\r\033[2K{GREEN}{Box.v}{RESET} {GREEN}{glyph}{RESET} {BOLD}{phase}{RESET}"
+                f"\r\033[2K{GREEN}{Box.v}{RESET} {GREEN}{glyph}{RESET} {BOLD}{phase}{RESET}{DIM}{dots}{RESET}"
                 f" {DIM}{elapsed:0.0f}s · {model}{RESET}  {DIM}(ctrl-c to cancel){RESET}"
             )
             sys.stdout.flush()

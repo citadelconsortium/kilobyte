@@ -3,7 +3,12 @@
 A persistent layout that fills the window: a banner on top, a live stats bar, a scrollable
 conversation that streams character by character, a runtime panel toggled with F2, and an
 input box fixed at the bottom. The stats bar shows what Kilo is doing plus live numeric
-counters — elapsed runtime, tools used, tool steps, and tokens produced.
+counters — elapsed runtime, tools used, and tokens produced.
+
+Everything visible animates so the interface always reads as alive: a light sweeps across
+the wordmark, the status dot breathes, the activity glyph and word rotate with trailing
+dots while Kilo works, and an idle wave drifts when it is not. There is no step counter —
+a raw number that usually only reached "1" read as frozen.
 
 Built on prompt_toolkit's widgets (TextArea) so input focus and scrolling are handled
 robustly. When prompt_toolkit or a real terminal is unavailable, cli.py falls back to the
@@ -41,12 +46,22 @@ KILO_ART = (
     "╚═╝  ╚═╝╚═╝╚══════╝ ╚═════╝ ",
 )
 
-SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"       # default "thinking" spinner
+MOON = "◐◓◑◒"                    # a tool is running: a turning quarter
+ELLIPSIS = ("·  ", "·· ", "···", " ··", "  ·")  # "interpreting" drift
 PULSE = "▁▂▃▄▅▆▇█▇▆▅▄▃▂"
 ACTIVITY = ("thinking", "reasoning", "planning", "working", "composing", "considering")
 
+# Which glyph set animates for a given activity phase. Falls back to the braille spinner.
+def _phase_frames(phase: str) -> str:
+    if phase.startswith(("running", "warming")):
+        return MOON
+    return SPINNER
+
+
 STYLE = Style.from_dict({
-    "banner": "#5fd787 bold",
+    "banner": "#3fa869 bold",
+    "banner.hi": "#d7ffd7 bold",   # the bright band that sweeps across the wordmark
     "tagline": "#8a8a8a",
     "on": "#5fd787 bold",
     "off": "#ffd75f bold",
@@ -80,10 +95,10 @@ class KiloApp:
         # Live numeric counters for the stats bar.
         self.tokens = 0
         self.tools_used = 0
-        self.steps = 0
         self.show_panel = False
         self.effort = "medium"
-        self.agent_name = ""
+        self.agent_name = ""          # profile active this turn (auto-selected or forced)
+        self.forced_profile = ""      # set by /agent; overrides auto-selection
         self._sessions: list[dict[str, Any]] = []
         self._active: asyncio.Task | None = None
 
@@ -99,14 +114,27 @@ class KiloApp:
 
     # ---- layout -------------------------------------------------------------
 
+    def _shimmer(self, art: str, row: int):
+        """Split one wordmark line into segments with a bright band that sweeps across,
+        giving the logo a diagonal light-sweep. Cheap: a handful of short segments."""
+        span = len(art) + 14  # sweep a little past both edges so there is a brief pause
+        head = self.spin % span
+        out: list[tuple[str, str]] = [("class:banner", "  ")]
+        for col, ch in enumerate(art):
+            # Diagonal: the band leads on lower rows, so the highlight tilts as it moves.
+            lit = ch != " " and abs(col - (head - row)) <= 1
+            out.append(("class:banner.hi" if lit else "class:banner", ch))
+        out.append(("class:banner", "   "))
+        return out
+
     def _banner_text(self):
         online = bool(self.status.get("healthy"))
         prof = self.status.get("profile") or {}
-        # A pulsing dot animates even when idle, so the header never looks frozen.
+        # A breathing dot animates even when idle, so the header never looks frozen.
         pulse = PULSE[self.spin % len(PULSE)]
         dot = f"{pulse} online" if online else "○ offline"
         info = [
-            [("class:banner", "KILOBYTE  "), ("class:on" if online else "class:off", dot)],
+            [("class:banner.hi", "KILOBYTE  "), ("class:on" if online else "class:off", dot)],
             [("class:tagline", "local-first · one model · no cloud by default")],
             [("class:dim", f"brain   {self.model_name}")],
             [("class:dim", f"context {prof.get('context_size','?')}   threads {prof.get('threads','?')}   gpu {prof.get('gpu_layers','?')}")],
@@ -115,7 +143,7 @@ class KiloApp:
         ]
         rows: list[tuple[str, str]] = []
         for i, art in enumerate(KILO_ART):
-            rows.append(("class:banner", "  " + art + "   "))
+            rows += self._shimmer(art, i)
             rows += info[i] if i < len(info) else []
             rows.append(("", "\n"))
         return rows
@@ -123,11 +151,18 @@ class KiloApp:
     def _stats_bar(self):
         elapsed = (time.monotonic() - self.started) if (self.busy and self.started) else 0
         if self.busy:
-            glyph = SPINNER[self.spin % len(SPINNER)]
             phase = self.phase or ACTIVITY[(self.spin // 10) % len(ACTIVITY)]
-            head = [("class:stat", f" {glyph} "), ("class:kilo", f"{phase}")]
+            if self.streaming:
+                # A blinking caret shows tokens are actively arriving.
+                caret = "▌" if (self.spin // 3) % 2 else " "
+                head = [("class:stat", " ▌ "), ("class:kilo", "responding"), ("class:stat", caret)]
+            else:
+                frames = _phase_frames(phase)
+                glyph = frames[self.spin % len(frames)]
+                dots = ELLIPSIS[(self.spin // 3) % len(ELLIPSIS)]
+                head = [("class:stat", f" {glyph} "), ("class:kilo", phase), ("class:dim", f" {dots}")]
         else:
-            # A gentle wave animates while idle so the bar is never static.
+            # A gentle wave drifts while idle so the bar is never static.
             wave = "".join(PULSE[(self.spin + i) % len(PULSE)] for i in range(3))
             head = [("class:stat", f" {wave} "), ("class:dim", "ready")]
         bar = head + [
@@ -194,7 +229,7 @@ class KiloApp:
         if self._handle_command(text):
             return False
         self._append(f"\n{_you(text)}\n\n")
-        self.tokens = self.tools_used = self.steps = 0
+        self.tokens = self.tools_used = 0
         self._active = asyncio.create_task(self._ask(text))
         return False
 
@@ -213,6 +248,7 @@ class KiloApp:
             self._append(
                 "\ncommands:\n"
                 "  /effort high|medium|low   depth vs speed of replies\n"
+                "  /agent <name>|off         force research|coding|security|systems, or auto\n"
                 "  /chats                    list past sessions to resume\n"
                 "  /chat <n>                 open a past session by number\n"
                 "  /cloud <question>         send one message to a cloud model\n"
@@ -225,6 +261,20 @@ class KiloApp:
             return True
         if text.startswith("/chat "):
             asyncio.create_task(self._open_chat(text.split(maxsplit=1)[1].strip()))
+            return True
+        if text.startswith("/agent"):
+            parts = text.split()
+            name = parts[1].lower() if len(parts) > 1 else ""
+            valid = {"research", "coding", "security", "systems", "general"}
+            if name in {"", "off", "auto"}:
+                self.forced_profile = ""
+                self._append("\n— agent auto-selection restored —\n")
+            elif name in valid:
+                self.forced_profile = name
+                self.agent_name = name
+                self._append(f"\n— forced {name} agent (use /agent off to auto-select) —\n")
+            else:
+                self._append(f"\n— unknown agent; choose {', '.join(sorted(valid))} —\n")
             return True
         if text.startswith("/effort"):
             parts = text.split()
@@ -241,7 +291,7 @@ class KiloApp:
                 self._append("\n— usage: /cloud <question> —\n")
                 return True
             self._append(f"\n{_you(rest)}\n\n")
-            self.tokens = self.tools_used = self.steps = 0
+            self.tokens = self.tools_used = 0
             self._active = asyncio.create_task(self._ask(rest, provider=""))
             return True
         return False
@@ -290,6 +340,8 @@ class KiloApp:
         try:
             reader, writer = await asyncio.open_unix_connection(self.client.socket_path)
             req: dict[str, Any] = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd()), "effort": self.effort}
+            if self.forced_profile:
+                req["agent_profile"] = self.forced_profile
             if provider is not None:
                 req["provider"] = provider
             writer.write((json.dumps(req) + "\n").encode())
@@ -312,7 +364,6 @@ class KiloApp:
                 elif kind == "thinking":
                     self.phase = "thinking"
                     self.streaming = False
-                    self.steps += 1
                 elif kind == "token":
                     self.streaming = True
                     self.tokens += 1

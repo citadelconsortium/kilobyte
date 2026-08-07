@@ -122,10 +122,12 @@ class Agent:
             # which on slow hardware is minutes, and silence there reads as a hang.
             yield {"type": "warming"}
 
-        for step in range(max_steps):
+        for _step in range(max_steps):
             if escalated is None:
                 await self.runtime.ensure_ready()
-            yield {"type": "thinking", "step": step + 1}
+            # No step number: the interface animates a rotating activity word instead. A
+            # raw counter that usually only reached 1 read as "stuck on step 1".
+            yield {"type": "thinking"}
             payload = {
                 "model": "kilobyte",
                 "messages": messages,
