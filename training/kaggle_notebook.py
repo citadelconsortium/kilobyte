@@ -141,13 +141,27 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
 
+    cuda = torch.cuda.is_available()
+    if cuda:
+        log(f"CUDA ok: {torch.cuda.device_count()}x {torch.cuda.get_device_name(0)}")
+    else:
+        log("WARNING: no GPU allocated for this session — falling back to CPU in fp32. "
+            "If a GPU was expected, the account's GPU quota is likely exhausted; training "
+            "a 1.5B model on CPU is slow but will not hang.")
     base = resolve_base_model(config)
     tc = config["train"]
-    log(f"loading tokenizer and base model from {base}")
+    log(f"loading tokenizer from {base}")
     tokenizer = AutoTokenizer.from_pretrained(base)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.float16, device_map="auto")
+    log("loading base model (this is the slow load step)...")
+    dtype = torch.float16 if cuda else torch.float32
+    model = AutoModelForCausalLM.from_pretrained(
+        base, torch_dtype=dtype, device_map=("auto" if cuda else None),
+    )
+    if not cuda:
+        model = model.to("cpu")
+    log("base model loaded")
     model.config.use_cache = False
     if tc.get("gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
@@ -187,8 +201,8 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
         lr_scheduler_type=tc["lr_scheduler"],
         warmup_ratio=tc["warmup_ratio"],
         weight_decay=tc["weight_decay"],
-        fp16=True,
-        logging_steps=5,
+        fp16=cuda,
+        logging_steps=1,
         save_strategy="no",
         report_to=[],
         seed=tc["seed"],
