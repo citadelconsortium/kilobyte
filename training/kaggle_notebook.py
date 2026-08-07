@@ -114,8 +114,25 @@ def render_examples(path: Path, tokenizer, max_len: int) -> "list[dict]":
     return rows
 
 
+def _disable_optional_backends() -> None:
+    """Kaggle ships an old torchao that peft's LoRA dispatch rejects with an ImportError
+    even though we do not use it. Force the availability checks to report absent so the
+    plain LoRA path is taken. No internet to upgrade the package, so this is the fix."""
+    try:
+        import peft.import_utils as iu
+        for name in ("is_torchao_available", "is_aqlm_available", "is_eetq_available", "is_hqq_available"):
+            if hasattr(iu, name):
+                setattr(iu, name, lambda *a, **k: False)
+        import peft.tuners.lora.torchao as lt
+        if hasattr(lt, "is_torchao_available"):
+            lt.is_torchao_available = lambda *a, **k: False
+    except Exception as exc:  # noqa: BLE001 - best-effort guard
+        log(f"could not patch optional backend checks: {exc}")
+
+
 def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
     import torch
+    _disable_optional_backends()
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
 
