@@ -90,3 +90,31 @@ class BrainLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrainVersioningTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.mgr = BrainManager(Path(self.tmp.name) / "models", min_bytes=TINY)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_promotion_records_a_version_entry(self):
+        source = _fake_gguf(Path(self.tmp.name) / "b.gguf", filler=b"B")
+        self.mgr.stage_candidate(source)
+        self.mgr.promote(brain_version="1.0", framework_version="0.1.0")
+        history = self.mgr.versions()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["event"], "promote")
+        self.assertEqual(history[0]["brain_version"], "1.0")
+        self.assertEqual(self.mgr.current_version(), "1.0")
+
+    def test_history_is_append_only_across_promotions(self):
+        for version, filler in (("1.0", b"A"), ("1.1", b"B"), ("1.2", b"C")):
+            src = _fake_gguf(Path(self.tmp.name) / f"{version}.gguf", filler=filler)
+            self.mgr.stage_candidate(src)
+            self.mgr.promote(brain_version=version)
+        events = [e["brain_version"] for e in self.mgr.versions()]
+        self.assertEqual(events, ["1.0", "1.1", "1.2"])
+        self.assertEqual(self.mgr.current_version(), "1.2")

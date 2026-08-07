@@ -58,8 +58,20 @@ class Settings:
 
     @property
     def model_path(self) -> Path:
+        """The brain the runtime loads.
+
+        A promoted, trained brain lives in models/current/kilobyte.gguf and takes
+        precedence, so `kilo brain promote` followed by a restart actually swaps the
+        brain Kilo runs. With no promoted brain, the originally installed model is used,
+        so a fresh install keeps working before any training has happened.
+        """
         override = os.environ.get("KILOBYTE_MODEL_PATH")
-        return Path(override).expanduser() if override else self.data_dir / "models" / MODEL_FILENAME
+        if override:
+            return Path(override).expanduser()
+        promoted = self.data_dir / "models" / "current" / "kilobyte.gguf"
+        if promoted.is_file():
+            return promoted
+        return self.data_dir / "models" / MODEL_FILENAME
 
     @property
     def database_path(self) -> Path:

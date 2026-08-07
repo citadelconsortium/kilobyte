@@ -69,7 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
     stage.add_argument("--sha256", help="expected checksum to verify before staging")
     promote = brain_sub.add_parser("promote", help="promote the candidate to the current brain")
     promote.add_argument("--sha256", help="expected checksum to verify before promoting")
+    promote.add_argument("--brain-version", default="unknown", help="version label to record for this brain")
     brain_sub.add_parser("rollback", help="restore the previous brain after a bad promotion")
+    brain_sub.add_parser("versions", help="show the brain version history")
+    deploy = brain_sub.add_parser("deploy", help="stage, promote, restart and smoke-test a brain, rolling back on failure")
+    deploy.add_argument("source", help="path to the candidate .gguf")
+    deploy.add_argument("--brain-version", default="unknown")
+    deploy.add_argument("--sha256", help="expected checksum")
     return parser
 
 
@@ -98,17 +104,102 @@ def brain_command(args: argparse.Namespace, settings: Settings) -> int:
             print("evaluate it, then: kilo brain promote")
             return 0
         if action == "promote":
-            info = manager.promote(args.sha256)
-            print(f"{GREEN}promoted{RESET} to current ({info.sha256}). Restart Kilo to load it: sudo systemctl restart kilobyte")
+            info = manager.promote(args.sha256, brain_version=args.brain_version, framework_version=__version__)
+            print(f"{GREEN}promoted{RESET} brain {args.brain_version} to current ({info.sha256}).")
+            print("restart Kilo to load it: sudo systemctl restart kilobyte")
             return 0
         if action == "rollback":
             info = manager.rollback()
             print(f"{YELLOW}rolled back{RESET} to the previous brain ({info.sha256}). Restart Kilo: sudo systemctl restart kilobyte")
             return 0
+        if action == "deploy":
+            return brain_deploy(manager, args, settings)
+        if action == "versions":
+            history = manager.versions()
+            if not history:
+                print(f"{DIM}no brain versions recorded yet{RESET}")
+                return 0
+            import datetime
+            for entry in history:
+                when = datetime.datetime.fromtimestamp(entry.get("at", 0)).strftime("%Y-%m-%d %H:%M")
+                mark = GREEN if entry.get("event") == "promote" else YELLOW
+                print(f"{when}  {mark}{entry.get('event'):<9}{RESET}brain {entry.get('brain_version')}  fw {entry.get('framework_version')}  {DIM}{str(entry.get('sha256'))[:12]}{RESET}")
+            print(f"\ncurrent brain version: {manager.current_version() or 'unknown'}")
+            return 0
     except BrainError as exc:
         print(f"{YELLOW}brain error:{RESET} {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def brain_deploy(manager, args: argparse.Namespace, settings: Settings) -> int:
+    """The promotion gate: stage, promote, restart, smoke-test, and roll back on failure.
+
+    A trained brain becomes the one Kilo runs only if it actually loads and answers after
+    promotion. If the smoke test fails, the previous brain is restored automatically, so a
+    bad candidate never leaves Kilo without a working brain.
+    """
+    from .brains import BrainError
+
+    try:
+        manager.stage_candidate(Path(args.source), args.sha256)
+        manager.promote(args.sha256, brain_version=args.brain_version, framework_version=__version__)
+    except BrainError as exc:
+        print(f"{YELLOW}deploy aborted:{RESET} {exc}", file=sys.stderr)
+        return 1
+    print(f"{GREEN}promoted{RESET} brain {args.brain_version}; restarting to load it")
+    if service_action("restart") != 0:
+        print(f"{YELLOW}could not restart the service; rolling back{RESET}", file=sys.stderr)
+        manager.rollback()
+        service_action("restart")
+        return 1
+
+    ok, detail = smoke_test(settings)
+    if ok:
+        print(f"{GREEN}KILOBYTE BRAIN PROMOTION SUCCESSFUL{RESET} — {detail}")
+        return 0
+    print(f"{YELLOW}smoke test failed ({detail}); rolling back to the previous brain{RESET}", file=sys.stderr)
+    try:
+        manager.rollback()
+    except BrainError as exc:
+        print(f"{YELLOW}rollback failed:{RESET} {exc}", file=sys.stderr)
+        return 2
+    service_action("restart")
+    print(f"{YELLOW}rolled back{RESET}; Kilo is running the previous brain")
+    return 1
+
+
+def smoke_test(settings: Settings, timeout: float = 900.0) -> tuple[bool, str]:
+    """Confirm the freshly promoted brain loads and answers. Waits for the daemon to come
+    healthy, then checks a reply mentions the Kilobyte identity."""
+    client = RPCClient(settings.socket_path)
+
+    async def probe() -> tuple[bool, str]:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                status = await client.request("status")
+                if status.get("healthy"):
+                    break
+            except (FileNotFoundError, ConnectionError, OSError):
+                pass
+            await asyncio.sleep(3)
+        else:
+            return False, "daemon did not become healthy"
+        reply = ""
+        try:
+            async for event in client.stream("chat", text="State your name in one short sentence.", cwd=str(Path.cwd())):
+                if event.get("type") == "token":
+                    reply += event.get("text", "")
+                if event.get("type") == "done":
+                    break
+        except (FileNotFoundError, ConnectionError, OSError) as exc:
+            return False, f"inference failed: {exc}"
+        if "kilo" in reply.lower():
+            return True, "identity confirmed"
+        return False, f"unexpected reply: {reply[:80]!r}"
+
+    return asyncio.run(probe())
 
 
 async def async_main(args: argparse.Namespace, settings: Settings) -> int:

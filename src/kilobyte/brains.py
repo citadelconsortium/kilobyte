@@ -95,7 +95,7 @@ class BrainManager:
         self._write_meta("candidate", {"staged_at": time.time(), "source": str(source), "sha256": _sha256(candidate)})
         return self.info("candidate", with_hash=True)
 
-    def promote(self, expected_sha256: str | None = None) -> BrainInfo:
+    def promote(self, expected_sha256: str | None = None, brain_version: str = "unknown", framework_version: str = "unknown") -> BrainInfo:
         """Make the candidate the current brain, keeping the old current as previous.
 
         Nothing is destroyed: current is preserved in previous before it is replaced, so a
@@ -118,7 +118,9 @@ class BrainManager:
         tmp_cur = current.with_suffix(".gguf.staging")
         shutil.copy2(candidate, tmp_cur)
         os.replace(tmp_cur, current)
-        self._write_meta("current", {"promoted_at": time.time(), "sha256": _sha256(current)})
+        digest = _sha256(current)
+        self._write_meta("current", {"promoted_at": time.time(), "sha256": digest, "brain_version": brain_version})
+        self.record_version("promote", brain_version, framework_version, digest)
         candidate.unlink(missing_ok=True)
         return self.info("current", with_hash=True)
 
@@ -132,7 +134,9 @@ class BrainManager:
         tmp_cur = current.with_suffix(".gguf.staging")
         shutil.copy2(previous, tmp_cur)
         os.replace(tmp_cur, current)
-        self._write_meta("current", {"rolled_back_at": time.time(), "sha256": _sha256(current)})
+        digest = _sha256(current)
+        self._write_meta("current", {"rolled_back_at": time.time(), "sha256": digest})
+        self.record_version("rollback", self.current_version() or "previous", "unknown", digest)
         return self.info("current", with_hash=True)
 
     def _write_meta(self, slot: str, data: dict) -> None:
@@ -141,6 +145,42 @@ class BrainManager:
             meta.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         except OSError:
             pass
+
+    @property
+    def history_path(self) -> Path:
+        return self.models_dir / "versions.json"
+
+    def record_version(self, event: str, brain_version: str, framework_version: str, sha256: str) -> None:
+        """Append one immutable entry to the brain version log.
+
+        Every promotion and rollback is recorded so a release is auditable and a specific
+        brain version can be identified for rollback -- the model equivalent of a git tag.
+        """
+        history = self.versions()
+        history.append({
+            "event": event,
+            "brain_version": brain_version,
+            "framework_version": framework_version,
+            "sha256": sha256,
+            "at": time.time(),
+        })
+        try:
+            self.history_path.parent.mkdir(parents=True, exist_ok=True)
+            self.history_path.write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    def versions(self) -> list[dict]:
+        try:
+            return json.loads(self.history_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    def current_version(self) -> str | None:
+        for entry in reversed(self.versions()):
+            if entry.get("event") in {"promote", "rollback"}:
+                return entry.get("brain_version")
+        return None
 
     def status(self) -> dict[str, dict[str, object]]:
         out: dict[str, dict[str, object]] = {}
