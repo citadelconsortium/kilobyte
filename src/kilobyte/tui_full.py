@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
@@ -174,8 +175,8 @@ class KiloApp:
 
     def _append(self, text: str) -> None:
         buff = self.output.buffer
-        buff.set_document_from_text(buff.text + text, bypass_readonly=True)
-        buff.cursor_position = len(buff.text)
+        new = buff.text + text
+        buff.set_document(Document(new, len(new)), bypass_readonly=True)
 
     # ---- interaction --------------------------------------------------------
 
@@ -196,7 +197,7 @@ class KiloApp:
             self.app.exit()
             return True
         if text == "/clear":
-            self.output.buffer.set_document_from_text("", bypass_readonly=True)
+            self.output.buffer.set_document(Document("", 0), bypass_readonly=True)
             return True
         if text == "/new":
             self.session_id = None
@@ -267,7 +268,7 @@ class KiloApp:
         except (ConnectionError, FileNotFoundError, OSError) as exc:
             self._append(f"\n⚠ could not load session: {exc}\n")
             return
-        self.output.buffer.set_document_from_text("", bypass_readonly=True)
+        self.output.buffer.set_document(Document("", 0), bypass_readonly=True)
         self._append(f"— resumed session · {session.get('messages',0)} messages —\n")
         for m in data.get("messages", []):
             self._append(f"\n{_you(m['content']) if m['role']=='user' else m['content']}\n")
@@ -344,7 +345,7 @@ class KiloApp:
 
         @kb.add("c-l")
         def _(event):
-            self.output.buffer.set_document_from_text("", bypass_readonly=True)
+            self.output.buffer.set_document(Document("", 0), bypass_readonly=True)
 
         @kb.add("f2")
         def _(event):
