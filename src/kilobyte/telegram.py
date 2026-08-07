@@ -59,15 +59,31 @@ class TelegramBridge:
         ("start", "what Kilo is and how to use it"),
         ("status", "model, backend and resource status"),
         ("new", "start a fresh conversation"),
+        ("id", "show this chat's id"),
         ("help", "list commands"),
     )
 
     MENU = {
         "inline_keyboard": [
-            [{"text": "Status", "callback_data": "status"}, {"text": "New chat", "callback_data": "new"}],
-            [{"text": "Help", "callback_data": "help"}],
+            [{"text": "📊 Status", "callback_data": "status"}, {"text": "✨ New chat", "callback_data": "new"}],
+            [{"text": "🆔 My ID", "callback_data": "id"}, {"text": "❓ Help", "callback_data": "help"}],
         ]
     }
+
+    # Rotating glyphs for the live progress card, so a long-running reply visibly animates
+    # rather than sitting on a static line that reads as a hang.
+    SPINNER = "◐◓◑◒"
+    # A small icon per phase makes the progress card scannable at a glance.
+    PHASE_ICONS = {"thinking": "💭", "warming": "🔥", "running": "⚙️", "reading": "📖"}
+    BAR_FILLED = "█"
+    BAR_EMPTY = "░"
+
+    @staticmethod
+    def _bar(fraction: float, width: int = 10) -> str:
+        """A compact unicode meter, e.g. used for free-memory in the status card."""
+        fraction = max(0.0, min(1.0, fraction))
+        filled = round(fraction * width)
+        return TelegramBridge.BAR_FILLED * filled + TelegramBridge.BAR_EMPTY * (width - filled)
 
     @staticmethod
     def _call(token: str, method: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -164,15 +180,22 @@ class TelegramBridge:
         edit that would not change the text, so the elapsed counter doubles as the
         thing that makes each edit distinct.
         """
+        frame = 0
         while True:
             await asyncio.sleep(self.PROGRESS_SECONDS)
+            frame += 1
+            spin = self.SPINNER[frame % len(self.SPINNER)]
+            icon = self.PHASE_ICONS.get(state.get("phase_kind", "thinking"), "💭")
             elapsed = int(time.monotonic() - state["started"])
             minutes, seconds = divmod(elapsed, 60)
             clock = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+            tools = list(dict.fromkeys(state["tools"]))
             body = "\n".join([
-                f"⏳ <b>{html.escape(state['phase'])}</b>",
-                f"<i>running for {clock}</i>",
-                *([f"<i>used: {html.escape(', '.join(state['tools']))}</i>"] if state["tools"] else []),
+                f"{spin} <b>Kilo is working</b>",
+                "",
+                f"{icon} {html.escape(state['phase'])}",
+                f"⏱ <i>{clock}</i>",
+                *([f"🔧 <i>{html.escape(' → '.join(tools))}</i>"] if tools else []),
             ])
             await self._edit_progress(token, chat_id, message_id, body)
 
@@ -180,26 +203,29 @@ class TelegramBridge:
         typing = asyncio.create_task(self._keep_typing(token, chat_id))
         # A reply can take minutes here; a status message that is edited as work
         # progresses is the only way the sender can tell it is alive.
-        progress = await self._send_progress(token, chat_id, "⏳ <b>thinking</b>")
-        state: dict[str, Any] = {"phase": "thinking", "started": time.monotonic(), "tools": []}
+        progress = await self._send_progress(token, chat_id, "◐ <b>Kilo is working</b>\n\n💭 thinking")
+        state: dict[str, Any] = {"phase": "thinking", "phase_kind": "thinking", "started": time.monotonic(), "tools": []}
         ticker = asyncio.create_task(self._tick_progress(token, chat_id, progress, state))
         output: list[str] = []
+        agent_label: str | None = None
         try:
             async for event in self.agent.run(str(text), f"telegram-{chat_id}", remote=True):
                 kind = event.get("type")
                 if kind == "token":
                     output.append(event.get("text", ""))
+                elif kind == "agent":
+                    agent_label = str(event.get("profile") or "")
                 elif kind == "warming":
-                    state["phase"] = "waiting for the model cache to warm (one-off)"
+                    state["phase"], state["phase_kind"] = "warming the model cache (one-off)", "warming"
                 elif kind == "thinking":
                     # No step number: it read as stuck. The timer conveys progress.
-                    state["phase"] = "thinking"
+                    state["phase"], state["phase_kind"] = "thinking", "thinking"
                 elif kind == "tool_start":
                     name = str(event.get("name"))
                     state["tools"].append(name)
-                    state["phase"] = f"running {name}"
+                    state["phase"], state["phase_kind"] = f"running {name}", "running"
                 elif kind == "tool_end":
-                    state["phase"] = f"read {event.get('name')} · interpreting"
+                    state["phase"], state["phase_kind"] = f"read {event.get('name')} · interpreting", "reading"
                 elif kind == "error":
                     output.append(f"\n[error: {event.get('error')}]")
         except Exception as exc:
@@ -207,7 +233,11 @@ class TelegramBridge:
             log.exception("telegram request failed for chat %s", chat_id)
             ticker.cancel()
             await self._delete(token, chat_id, progress)
-            await self.send(token, chat_id, f"⚠️ Kilo hit an error:\n<code>{html.escape(str(exc))}</code>", self.MENU)
+            await self.send(
+                token, chat_id,
+                f"⚠️ <b>Kilo hit an error</b>\n<code>{html.escape(str(exc))}</code>",
+                self.MENU,
+            )
             return
         finally:
             typing.cancel()
@@ -215,10 +245,17 @@ class TelegramBridge:
         await self._delete(token, chat_id, progress)
         answer = html.escape("".join(output).strip())
         took = int(time.monotonic() - state["started"])
-        footer = [f"<i>{took}s</i>"]
+        minutes, seconds = divmod(took, 60)
+        clock = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+        # A thin divider then a compact meta line: which agent answered, how long it took,
+        # and which tools it actually used. Reads like a signed answer, not a raw dump.
+        footer_bits = []
+        if agent_label and agent_label not in ("", "general", "conversation"):
+            footer_bits.append(f"◆ {html.escape(agent_label)}")
+        footer_bits.append(f"⏱ {clock}")
         if state["tools"]:
-            footer.append(f"<i>{html.escape(', '.join(dict.fromkeys(state['tools'])))}</i>")
-        body = f"{answer}\n\n{' · '.join(footer)}" if answer else "(no response)"
+            footer_bits.append(f"🔧 {html.escape(', '.join(dict.fromkeys(state['tools'])))}")
+        body = f"{answer}\n\n<i>{' · '.join(footer_bits)}</i>" if answer else "🤔 <i>(no response — try rephrasing)</i>"
         await self.send(token, chat_id, body, self.MENU)
 
     async def _command(self, token: str, chat_id: int, command: str) -> bool:
@@ -226,38 +263,58 @@ class TelegramBridge:
         command = command.lstrip("/").split("@")[0].split()[0].lower() if command.strip() else ""
         if command in {"start", "help"}:
             lines = [
-                "Kilo — your local AI, running on your own machine.",
+                "🤖 <b>Kilo</b> — your local AI",
+                "<i>runs entirely on your own machine · nothing goes to the cloud</i>",
                 "",
-                "Send a message and it is answered by the same brain the terminal uses.",
-                "Nothing is sent to a cloud service.",
+                "Just send a message and the same brain the terminal uses answers it.",
                 "",
-                "Commands:",
-                *[f"/{name} — {description}" for name, description in self.COMMANDS],
+                "<b>Commands</b>",
+                *[f"• <code>/{name}</code> — {description}" for name, description in self.COMMANDS],
                 "",
-                "Over Telegram Kilo is read-only: it can look things up, search the web and",
-                "remember facts, but cannot run commands, write files or change the system.",
+                "🔒 <b>Kilo is read-only here.</b> Over Telegram it can look things up, search",
+                "the web and remember facts — but never runs commands, writes files or changes",
+                "the system. Use the terminal for that.",
             ]
             await self.send(token, chat_id, "\n".join(lines), self.MENU)
             return True
         if command == "new":
             self.agent.memory.new_session("telegram", "reset")
-            await self.send(token, chat_id, "Started a fresh conversation.", self.MENU)
+            await self.send(token, chat_id, "✨ <b>Fresh conversation started.</b>\n<i>Earlier context is set aside.</i>", self.MENU)
+            return True
+        if command == "id":
+            await self.send(
+                token, chat_id,
+                f"🆔 This chat's id is <code>{chat_id}</code>\n"
+                f"<i>Add it to allowed_chat_ids to authorise it.</i>",
+                self.MENU,
+            )
             return True
         if command == "status":
             try:
                 status = self.agent.runtime.status()
                 profile = status.get("profile") or {}
+                running = bool(status.get("running"))
+                total = profile.get("total_mb") or 0
+                avail = profile.get("available_mb") or 0
+                mem_line = f"{avail} / {total} MiB free"
+                if total:
+                    mem_line = f"{self._bar(avail / total)}  {mem_line}"
+                uptime = int(status.get("uptime_seconds", 0) or 0)
+                um, us = divmod(uptime, 60)
+                uh, um = divmod(um, 60)
+                uptime_str = f"{uh}h {um}m" if uh else (f"{um}m {us}s" if um else f"{us}s")
                 lines = [
-                    f"state     {'running' if status.get('running') else 'stopped'}",
-                    f"model     {Path(str(status.get('model', ''))).stem}",
-                    f"uptime    {status.get('uptime_seconds', 0)}s",
-                    f"context   {profile.get('context_size')}",
-                    f"threads   {profile.get('threads')}   gpu layers {profile.get('gpu_layers')}",
-                    f"memory    {profile.get('available_mb')} MiB free of {profile.get('total_mb')} MiB",
+                    f"{'🟢' if running else '🔴'} <b>Kilo — {'running' if running else 'stopped'}</b>",
+                    "",
+                    f"🧠 <b>model</b>    <code>{html.escape(Path(str(status.get('model', ''))).stem)}</code>",
+                    f"⏱ <b>uptime</b>   {uptime_str}",
+                    f"📐 <b>context</b>  {profile.get('context_size')} tokens",
+                    f"⚙️ <b>threads</b>  {profile.get('threads')}   ·   gpu layers {profile.get('gpu_layers')}",
+                    f"💾 <b>memory</b>   {mem_line}",
                 ]
                 await self.send(token, chat_id, "\n".join(lines), self.MENU)
             except Exception as exc:
-                await self.send(token, chat_id, f"Could not read status: {exc}", self.MENU)
+                await self.send(token, chat_id, f"⚠️ Could not read status: <code>{html.escape(str(exc))}</code>", self.MENU)
             return True
         return False
 

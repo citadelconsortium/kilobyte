@@ -58,6 +58,19 @@ class Provider:
         return f"{self.name}:{self.model}"
 
 
+# A catalog of well-known OpenAI-compatible endpoints. Because the base URL and a sensible
+# default model are known ahead of time, configuring cloud escalation needs nothing from the
+# user but an API key — pick the provider, paste the key. Users can still override the model.
+KNOWN_PROVIDERS: dict[str, dict[str, str]] = {
+    "openrouter": {"label": "OpenRouter", "base_url": "https://openrouter.ai/api/v1", "model": "anthropic/claude-sonnet-4.5"},
+    "openai": {"label": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-4o"},
+    "anthropic": {"label": "Anthropic", "base_url": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-5"},
+    "groq": {"label": "Groq", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "together": {"label": "Together", "base_url": "https://api.together.xyz/v1", "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+}
+
+
 class ProviderRegistry:
     """Loads provider definitions and streams completions from them on request."""
 
@@ -94,6 +107,37 @@ class ProviderRegistry:
                 continue
             found[str(name)] = Provider(str(name), base_url, key, model, int(entry.get("timeout", 120)))
         return found
+
+    def configure(self, name: str, api_key: str, model: str | None = None) -> Provider:
+        """Add or update a provider from just an API key (and optional model), using the
+        catalog for the base URL and default model, then make it the default. Written 0600
+        because it holds the key. Takes effect immediately: the registry reads the file live.
+        """
+        import os
+
+        name = name.strip().lower()
+        known = KNOWN_PROVIDERS.get(name, {})
+        base_url = known.get("base_url", "https://openrouter.ai/api/v1")
+        chosen_model = (model or known.get("model") or "").strip()
+        if not api_key.strip():
+            raise ProviderError("an API key is required")
+        if not chosen_model:
+            raise ProviderError(f"no default model known for {name}; pass a model explicitly")
+        raw = self._raw()
+        raw.setdefault("providers", {})[name] = {
+            "base_url": base_url,
+            "api_key": api_key.strip(),
+            "model": chosen_model,
+            "enabled": True,
+        }
+        raw["default"] = name
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        try:
+            os.chmod(self.config_path, 0o600)
+        except OSError:
+            pass
+        return self.resolve(name)
 
     def default_name(self) -> str | None:
         raw = self._raw()

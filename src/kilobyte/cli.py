@@ -76,6 +76,17 @@ def build_parser() -> argparse.ArgumentParser:
     deploy.add_argument("source", help="path to the candidate .gguf")
     deploy.add_argument("--brain-version", default="unknown")
     deploy.add_argument("--sha256", help="expected checksum")
+
+    tg = sub.add_parser("telegram", help="manage the Telegram bot (token and allowed chats)")
+    tg_sub = tg.add_subparsers(dest="telegram_command")
+    tg_sub.add_parser("status", help="show whether Telegram is enabled and which chats are allowed")
+    tg_token = tg_sub.add_parser("set-token", help="set the bot token")
+    tg_token.add_argument("token", help="the @BotFather bot token")
+    tg_allow = tg_sub.add_parser("allow", help="authorise a chat id")
+    tg_allow.add_argument("chat_id", type=int, help="numeric chat id (send /id to the bot to find it)")
+    tg_deny = tg_sub.add_parser("disallow", help="remove a chat id")
+    tg_deny.add_argument("chat_id", type=int)
+    tg_sub.add_parser("disable", help="turn Telegram off by clearing the token")
     return parser
 
 
@@ -129,6 +140,63 @@ def brain_command(args: argparse.Namespace, settings: Settings) -> int:
     except BrainError as exc:
         print(f"{YELLOW}brain error:{RESET} {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def telegram_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Manage the Telegram bot without hand-editing JSON. The bridge polls its config
+    every 30s, so these changes take effect without a restart. The file is written 0600
+    because it holds the bot token."""
+    import json
+    import os
+
+    path = settings.telegram_path
+    action = getattr(args, "telegram_command", None) or "status"
+    try:
+        config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    config.setdefault("token", "")
+    allowed = [int(x) for x in config.get("allowed_chat_ids", []) if str(x).lstrip("-").isdigit()]
+
+    def save() -> None:
+        config["allowed_chat_ids"] = sorted(set(allowed))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+    if action == "status":
+        token = str(config.get("token", "")).strip()
+        enabled = bool(token) and token != "PASTE_BOT_TOKEN_HERE" and bool(allowed)
+        print(f"telegram   {GREEN + 'enabled' + RESET if enabled else YELLOW + 'disabled' + RESET}")
+        print(f"token      {'set (' + token[:6] + '…)' if token else DIM + 'unset' + RESET}")
+        print(f"allowed    {', '.join(map(str, allowed)) if allowed else DIM + 'none' + RESET}")
+        if not enabled:
+            print(f"\n{DIM}enable with: kilo telegram set-token <token> && kilo telegram allow <chat_id>{RESET}")
+        return 0
+    if action == "set-token":
+        config["token"] = args.token.strip()
+        save()
+        print(f"{GREEN}token set{RESET}. The bridge picks it up within 30s.")
+        return 0
+    if action == "allow":
+        allowed.append(int(args.chat_id))
+        save()
+        print(f"{GREEN}authorised{RESET} chat {args.chat_id}.")
+        return 0
+    if action == "disallow":
+        allowed[:] = [c for c in allowed if c != int(args.chat_id)]
+        save()
+        print(f"{YELLOW}removed{RESET} chat {args.chat_id}.")
+        return 0
+    if action == "disable":
+        config["token"] = ""
+        save()
+        print(f"{YELLOW}telegram disabled{RESET} (token cleared).")
+        return 0
     return 0
 
 
@@ -270,6 +338,8 @@ def main() -> None:
     if args.command == "brain":
         # Local filesystem operation; it does not need the daemon.
         raise SystemExit(brain_command(args, settings))
+    if args.command == "telegram":
+        raise SystemExit(telegram_command(args, settings))
     try:
         raise SystemExit(asyncio.run(async_main(args, settings)))
     except (FileNotFoundError, ConnectionRefusedError):
