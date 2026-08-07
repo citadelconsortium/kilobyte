@@ -205,6 +205,15 @@ def smoke_test(settings: Settings, timeout: float = 900.0) -> tuple[bool, str]:
 async def async_main(args: argparse.Namespace, settings: Settings) -> int:
     client = RPCClient(settings.socket_path)
     if args.command is None:
+        # Prefer the full-screen interface; fall back to the streaming line UI when
+        # prompt_toolkit is missing or there is no real terminal (piped, dumb term).
+        if sys.stdout.isatty() and not os.environ.get("KILO_SIMPLE_TUI"):
+            try:
+                from .tui_full import run_full_tui
+                if await run_full_tui(client):
+                    return 0
+            except ImportError:
+                pass
         await TerminalUI(client).run()
         return 0
     if args.command == "chat":

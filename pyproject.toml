@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Local-first terminal AI powered by one persistent GGUF brain"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-dependencies = []
+dependencies = ["prompt_toolkit>=3.0"]
 
 [project.scripts]
 kilo = "kilobyte.cli:main"
