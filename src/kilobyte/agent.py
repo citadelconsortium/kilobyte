@@ -10,6 +10,7 @@ from typing import Any
 from .config import Settings
 from .context import CHARS_PER_TOKEN, as_tool_message
 from .memory import MemoryStore
+from .profiles import select as select_profile
 from .prompt import REMOTE_SUFFIX, SYSTEM_PROMPT
 from .providers import ProviderRegistry
 from .runtime import LlamaRuntime
@@ -54,6 +55,7 @@ class Agent:
         permission_callback: PermissionCallback | None = None,
         provider: str | None = None,
         effort: str | None = None,
+        agent_profile: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         # Effort trades answer length and tool-step budget for speed. On slow hardware a
         # shorter reply is faster, so this is a direct latency lever, not just verbosity.
@@ -70,6 +72,13 @@ class Agent:
         # therefore goes in its own message after it rather than being appended to it.
         system = SYSTEM_PROMPT + (REMOTE_SUFFIX if remote else "")
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+        # A specialist profile is added after the cached base prompt, so it does not break
+        # the cacheable prefix. It pushes the small model toward evidence for this domain —
+        # the framework covering the model's tendency to guess.
+        profile = select_profile(text, agent_profile)
+        if profile.name != "general":
+            messages.append({"role": "system", "content": profile.instructions})
+            yield {"type": "agent", "profile": profile.name, "hint": profile.hint}
         facts = self.memory.recall(text)
         if facts:
             messages.append({
@@ -120,8 +129,10 @@ class Agent:
             payload = {
                 "model": "kilobyte",
                 "messages": messages,
-                "temperature": 0.6,
-                "top_p": 0.95,
+                # Low temperature keeps the small model focused and reduces
+                # confident confabulation; grounding comes from tools, not creativity.
+                "temperature": 0.4,
+                "top_p": 0.9,
                 "max_tokens": max_tokens,
             }
             if tool_schemas:

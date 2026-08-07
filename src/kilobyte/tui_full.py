@@ -83,6 +83,7 @@ class KiloApp:
         self.steps = 0
         self.show_panel = False
         self.effort = "medium"
+        self.agent_name = ""
         self._sessions: list[dict[str, Any]] = []
         self._active: asyncio.Task | None = None
 
@@ -101,13 +102,16 @@ class KiloApp:
     def _banner_text(self):
         online = bool(self.status.get("healthy"))
         prof = self.status.get("profile") or {}
+        # A pulsing dot animates even when idle, so the header never looks frozen.
+        pulse = PULSE[self.spin % len(PULSE)]
+        dot = f"{pulse} online" if online else "○ offline"
         info = [
-            [("class:banner", "KILOBYTE  "), ("class:on" if online else "class:off", "● online" if online else "● offline")],
+            [("class:banner", "KILOBYTE  "), ("class:on" if online else "class:off", dot)],
             [("class:tagline", "local-first · one model · no cloud by default")],
             [("class:dim", f"brain   {self.model_name}")],
             [("class:dim", f"context {prof.get('context_size','?')}   threads {prof.get('threads','?')}   gpu {prof.get('gpu_layers','?')}")],
             [("class:dim", "tools   files · shell · web · memory · skills")],
-            [("class:tagline", "/help · F2 runtime · Ctrl-C cancel · Ctrl-Q quit")],
+            [("class:tagline", "made by 0v3r51ght  ·  /help · F2 runtime · Ctrl-Q quit")],
         ]
         rows: list[tuple[str, str]] = []
         for i, art in enumerate(KILO_ART):
@@ -123,14 +127,17 @@ class KiloApp:
             phase = self.phase or ACTIVITY[(self.spin // 10) % len(ACTIVITY)]
             head = [("class:stat", f" {glyph} "), ("class:kilo", f"{phase}")]
         else:
-            head = [("class:on", " ● "), ("class:dim", "ready")]
+            # A gentle wave animates while idle so the bar is never static.
+            wave = "".join(PULSE[(self.spin + i) % len(PULSE)] for i in range(3))
+            head = [("class:stat", f" {wave} "), ("class:dim", "ready")]
         bar = head + [
             ("class:stat.k", "   ⏱ "), ("class:stat", f"{elapsed:0.0f}s"),
-            ("class:stat.k", "   ◆ steps "), ("class:stat", f"{self.steps}"),
             ("class:stat.k", "   🔧 tools "), ("class:stat", f"{self.tools_used}"),
             ("class:stat.k", "   ⇥ tokens "), ("class:stat", f"{self.tokens}"),
             ("class:stat.k", "   effort "), ("class:stat", f"{self.effort}"),
         ]
+        if self.agent_name:
+            bar += [("class:stat.k", "   ◆ "), ("class:kilo", self.agent_name)]
         return bar
 
     def _panel_text(self):
@@ -147,8 +154,7 @@ class KiloApp:
             ("class:panel.key", " memory   "), ("", f"{prof.get('available_mb','?')} MiB\n\n"),
             ("class:panel.title", " THIS TURN\n\n"),
             ("class:panel.key", " tokens   "), ("", f"{self.tokens}\n"),
-            ("class:panel.key", " tools    "), ("", f"{self.tools_used}\n"),
-            ("class:panel.key", " steps    "), ("", f"{self.steps}\n\n"),
+            ("class:panel.key", " tools    "), ("", f"{self.tools_used}\n\n"),
             ("class:panel.title", " MEMORY\n\n"),
             ("class:panel.key", " sessions "), ("", f"{mem.get('sessions','?')}\n"),
             ("class:panel.key", " facts    "), ("", f"{mem.get('facts','?')}\n"),
@@ -277,6 +283,7 @@ class KiloApp:
     async def _ask(self, text: str, provider: str | None = None) -> None:
         self.busy = True
         self.streaming = False
+        self.agent_name = ""
         self.phase = "thinking"
         self.started = time.monotonic()
         reader = writer = None
@@ -296,6 +303,9 @@ class KiloApp:
                     self.model_name = event.get("label", self.model_name)
                     if event.get("location") == "cloud":
                         self._append(f"☁ escalated to {event.get('label')}\n")
+                elif kind == "agent":
+                    self.agent_name = event.get("profile", "")
+                    self._append(f"◆ {event.get('profile')} agent — {event.get('hint','')}\n")
                 elif kind == "warming":
                     self.phase = "warming cache (one-off)"
                     self._append("⏳ warming the prompt cache — one-off after a change\n")
@@ -372,9 +382,10 @@ class KiloApp:
                     self.model_name = Path(str(self.status.get("model", ""))).stem or self.model_name
                 except Exception:
                     pass
-            if self.busy:
-                self.app.invalidate()
-            await asyncio.sleep(0.1)
+            # Always invalidate so the header dot and idle wave keep moving; the rate is
+            # modest, so this is cheap even while nothing is happening.
+            self.app.invalidate()
+            await asyncio.sleep(0.12)
 
     async def run(self) -> None:
         try:

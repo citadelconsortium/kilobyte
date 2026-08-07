@@ -75,6 +75,7 @@ class RPCServer:
                     permission,
                     request.get("provider"),
                     request.get("effort"),
+                    request.get("agent_profile"),
                 )
                 try:
                     async for event in run:
