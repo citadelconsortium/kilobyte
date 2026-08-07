@@ -3,20 +3,29 @@
 What Kilobyte contains, what has been added, and the reasoning behind the decisions that
 are not obvious from the code.
 
-Framework version 0.1.0 · brain `kilobyte-qwen3-1.7b-q4_k_m.gguf` (Qwen3 1.7B Q4_K_M,
+Framework version 1.2.0 · brain `kilobyte-qwen3-1.7b-q4_k_m.gguf` (Qwen3 1.7B Q4_K_M,
 Apache-2.0) · SHA-256 `d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5`
 
 ## What is in it
 
-**Brain.** One prebuilt GGUF, served by a single persistent `llama-server`. No training in
-the installer or at runtime, no adapters, no model picker, no cloud fallback.
+**Brain.** There is exactly **one** Kilobyte brain, trained once by the maintainer and
+shipped as a single prebuilt, checksum-pinned GGUF, served by one persistent `llama-server`.
+Installing Kilo *downloads* that brain and verifies its SHA-256 — it never trains. No
+adapters, no model picker, no automatic cloud fallback. Optional, explicit cloud escalation
+(`/cloud`) exists for when more power is wanted, but local is always the default.
 
 **Front ends.** An animated terminal TUI, and an optional Telegram bridge. Both talk to the
 same daemon over a Unix socket and share one loaded model with separate conversations.
 
-**Tools.** Ten, all verified end to end: `read_file`, `write_file`, `list_files`,
+**Tools.** Thirteen, all verified end to end: `read_file`, `write_file`, `list_files`,
 `search_files`, `run_command`, `system_info`, `web_search`, `web_fetch`, `remember`,
-`recall`.
+`recall`, `save_skill`, `list_skills`, `search_history`. MCP servers can add more. The tool
+set is deliberately **stable** (never routed per request) so the prompt prefix stays
+cacheable.
+
+**Agents.** Kilo runs in a specialist profile per task — `research`, `coding`, `security`
+(the "hacking" agent; `/agent hacking` is an alias), `systems`, and `conversation` (the
+default). Profiles are injected after the cached prefix, so switching one costs nothing.
 
 **Memory.** SQLite with bounded growth: sessions, messages, long-term facts and a tool
 audit trail. Retention limits are enforced on write.
@@ -30,6 +39,55 @@ and a stricter read-only policy for anything arriving remotely.
 installer that provisions dependencies, the service user, the model and the service.
 
 ## Changes and why
+
+### 1.1.0-1.2.0: grounding, autonomy, agents, easy cloud, one-brain docs
+
+This block of work made Kilo trustworthy and finish what it starts, and made cloud and
+Telegram pleasant to use — without changing the fact that there is one brain.
+
+**Anti-hallucination is ~80% framework, ~20% weights.** A 1.7B model cannot be trained not
+to hallucinate, so the framework forces it to work from evidence: the system prompt requires
+getting facts with a tool rather than recalling them, forbids inventing output/paths/results,
+and sampling runs at low temperature. But grounding was *too* blunt — it made the model hedge
+on things it plainly knows ("I'm not certain, but 1+1 is 2"). The prompt now separates the
+two: answer known facts/arithmetic/definitions directly and confidently; reserve tool-checking
+and abstention for what you would otherwise guess.
+
+**Follow-through (the "let me calculate… <stops>" bug).** The model would sometimes reply
+with only the *intent* to act and no tool call, and the loop accepted that promise as the
+answer. The agent now detects an announced-but-undelivered action (`_looks_like_punt`) and
+issues exactly **one** bounded nudge — call the tool now or answer now — so it either finishes
+or delivers, and can never loop. Covered by deterministic tests.
+
+**Specialist agents.** `research`, `coding`, `security` (hacking), `systems`, and a new
+`conversation` agent that is the default for anything unrouted: understand the real intent,
+then carry the task to a finished result. Each profile emphasises the grounding discipline for
+its domain. Auto-selected from the request or forced with `/agent`; friendly aliases route
+natural words (e.g. "hacking" -> security).
+
+**Automatic cross-session recall.** `search_history` existed, but a small model would not
+reliably reach for it, so relevant lines from earlier sessions are now surfaced automatically
+at the start of a turn — the framework guaranteeing memory rather than hoping the model asks.
+
+**Full-screen animated TUI.** A `prompt_toolkit` app: animated banner (with "made by
+0v3r51ght"), token-by-token streaming, a stats bar with **numeric** live counters (runtime,
+tools, tokens) and no step counter, an F2 runtime panel, and the active brain indicator.
+
+**Easy cloud escalation.** `/cloud` opens a picker of known OpenAI-compatible providers; the
+user supplies only an API key (base URL and default model come from a catalog), it is saved
+`0600` and made default. `/switch` flips the active brain between that provider and local Kilo
+(Kilo default), shown in the stats bar. Local is always the default; escalation is explicit.
+
+**Telegram redesign + management.** Animated progress card (spinner, phase icon, elapsed,
+tools), branded help/status/answer cards, a memory meter, `/id`, richer buttons — and a
+`kilo telegram status|set-token|allow|disallow|disable` CLI so the bot is managed without
+hand-editing JSON (config is polled live, no restart). Telegram stays strictly read-only.
+
+**Versioning for rollback.** The framework version lives in `pyproject.toml` /
+`__init__.py` and every release is a git tag (`v1.0.0`, `v1.1.0`, `v1.2.0`), so the codebase
+can be reverted to a known-good point; the brain is versioned separately (`kilo brain
+versions` / `rollback`).
+
 
 ### Replies were minutes long, or appeared to hang
 
@@ -171,9 +229,10 @@ reach, but a 1.7B brain still decides when to use them.
 
 ## Verification
 
-68 automated tests covering resources, runtime, agent loop, tools, context compaction,
-memory, skills, security, CLI, installation, Telegram, MCP (against a real server
-subprocess) and cloud providers.
+99 automated tests covering resources, runtime, agent loop (including the follow-through
+nudge), tools, context compaction, memory, skills, agent-profile routing and aliases,
+security, CLI, installation, Telegram, MCP (against a real server subprocess) and cloud
+provider configuration.
 
 A static analysis pass over the source found two genuine web-tool vulnerabilities, both
 confirmed by experiment before being fixed: urllib follows redirects, so validating only
