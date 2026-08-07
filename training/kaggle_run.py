@@ -98,6 +98,7 @@ def push_notebook(api, config: dict, dataset_ref: str) -> str:
             "enable_gpu": bool(config["kaggle"].get("enable_gpu", True)),
             "enable_internet": bool(config["kaggle"].get("enable_internet", True)),
             "dataset_sources": [dataset_ref],
+            "model_sources": config["kaggle"].get("model_sources", []),
             "competition_sources": [],
             "kernel_sources": [],
         }
