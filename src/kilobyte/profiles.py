@@ -127,7 +127,7 @@ PROFILES: dict[str, Profile] = {
 _ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("research", ("research", "find out", "look up", "latest", "news", "compare", "who is", "what is the current")),
     ("coding", ("code", "bug", "compile", "build", "test", "refactor", "function", "repository", "repo", "stack trace", "error in")),
-    ("security", ("exploit", "vulnerability", "cve", "nmap", "recon", "pentest", "malware", "reverse engineer", "forensic", "payload", "port scan")),
+    ("security", ("hack", "hacking", "exploit", "vulnerability", "cve", "nmap", "recon", "pentest", "penetration test", "malware", "reverse engineer", "forensic", "payload", "port scan", "privilege escalation")),
     ("systems", ("systemd", "service", "ssh", "firewall", "disk", "memory", "process", "log", "network", "docker", "container", "daemon")),
 )
 
@@ -137,6 +137,11 @@ def select(text: str, explicit: str | None = None) -> Profile:
     match keywords, and fall back to the conversation agent when nothing clearly fits — so
     even an unrouted request gets intent-understanding and follow-through discipline instead
     of the model being left to trail off."""
+    # Friendly aliases so a user's natural word reaches the right specialist.
+    _ALIASES = {"hacking": "security", "hack": "security", "pentest": "security",
+                "chat": "conversation", "convo": "conversation", "auto": ""}
+    if explicit:
+        explicit = _ALIASES.get(explicit.lower().strip(), explicit.lower().strip())
     if explicit and explicit in PROFILES:
         return PROFILES[explicit]
     lowered = text.lower()

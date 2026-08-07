@@ -280,7 +280,9 @@ class KiloApp:
         if text.startswith("/agent"):
             parts = text.split()
             name = parts[1].lower() if len(parts) > 1 else ""
-            valid = {"research", "coding", "security", "systems", "general"}
+            name = {"hacking": "security", "hack": "security", "pentest": "security",
+                    "chat": "conversation", "convo": "conversation"}.get(name, name)
+            valid = {"research", "coding", "security", "systems", "general", "conversation"}
             if name in {"", "off", "auto"}:
                 self.forced_profile = ""
                 self._append("\n— agent auto-selection restored —\n")
