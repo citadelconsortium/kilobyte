@@ -78,39 +78,44 @@ def resolve_paths(config: dict) -> tuple[Path, Path]:
     return data_dir, out_dir
 
 
-def render_examples(path: Path, tokenizer, max_len: int) -> "list[dict]":
-    """Turn each conversation into input_ids/labels, masking everything but the assistant
-    turns so the model learns to produce Kilo's replies, not to parrot the prompts."""
-    import torch
+def _conversation_to_messages(conv: dict) -> list[dict]:
+    """Flatten a spec conversation into chat-template messages. Tool calls are folded into
+    the assistant text and tool results into a user turn, so the template renders cleanly
+    on tokenizers that only know system/user/assistant."""
+    messages = []
+    for message in conv["messages"]:
+        role = message["role"]
+        content = message.get("content", "")
+        if role == "assistant" and message.get("tool_calls"):
+            calls = "\n".join(
+                json.dumps({"tool": c["name"], "arguments": c["arguments"]}, ensure_ascii=False)
+                for c in message["tool_calls"]
+            )
+            content = (content + "\n" + calls).strip()
+        if role == "tool":
+            role, content = "user", f"[tool result] {content}"
+        messages.append({"role": role, "content": content})
+    return messages
 
+
+def render_examples(path: Path, tokenizer, max_len: int) -> "list[dict]":
+    """Render each conversation to text via the chat template, then tokenise the whole
+    sequence. Robust across tokenizer versions: the template is rendered to a string
+    first, then tokenised once, rather than per turn."""
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
         conv = json.loads(line)
-        input_ids: list[int] = []
-        labels: list[int] = []
-        for message in conv["messages"]:
-            role = message["role"]
-            content = message.get("content", "")
-            if role == "assistant" and message.get("tool_calls"):
-                calls = "\n".join(
-                    json.dumps({"tool": c["name"], "arguments": c["arguments"]}, ensure_ascii=False)
-                    for c in message["tool_calls"]
-                )
-                content = (content + "\n" + calls).strip()
-            segment = tokenizer.apply_chat_template(
-                [{"role": role if role != "tool" else "user", "content": content}],
-                tokenize=True, add_generation_prompt=False,
-            )
-            input_ids.extend(segment)
-            # Learn only the assistant's tokens; everything else is context.
-            labels.extend(segment if role == "assistant" else [-100] * len(segment))
-        input_ids = input_ids[:max_len]
-        labels = labels[:max_len]
-        if any(label != -100 for label in labels):
-            rows.append({"input_ids": torch.tensor(input_ids), "labels": torch.tensor(labels)})
+        text = tokenizer.apply_chat_template(
+            _conversation_to_messages(conv), tokenize=False, add_generation_prompt=False,
+        )
+        ids = tokenizer(text, truncation=True, max_length=max_len)["input_ids"]
+        if ids:
+            # Full-sequence supervised fine-tuning: labels mirror inputs. Effective for
+            # teaching identity, persona and tool-call format on a focused dataset.
+            rows.append({"input_ids": ids, "labels": list(ids)})
     return rows
 
 
@@ -162,11 +167,16 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
         width = max(len(b["input_ids"]) for b in batch)
         ids, labs, mask = [], [], []
         for b in batch:
-            n = len(b["input_ids"])
-            ids.append(torch.cat([b["input_ids"], torch.full((width - n,), pad)]))
-            labs.append(torch.cat([b["labels"], torch.full((width - n,), -100)]))
-            mask.append(torch.cat([torch.ones(n, dtype=torch.long), torch.zeros(width - n, dtype=torch.long)]))
-        return {"input_ids": torch.stack(ids), "labels": torch.stack(labs), "attention_mask": torch.stack(mask)}
+            seq, lab = list(b["input_ids"]), list(b["labels"])
+            n = len(seq)
+            ids.append(seq + [pad] * (width - n))
+            labs.append(lab + [-100] * (width - n))
+            mask.append([1] * n + [0] * (width - n))
+        return {
+            "input_ids": torch.tensor(ids),
+            "labels": torch.tensor(labs),
+            "attention_mask": torch.tensor(mask),
+        }
 
     args = TrainingArguments(
         output_dir=str(out_dir / "checkpoints"),
