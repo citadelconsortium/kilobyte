@@ -69,6 +69,7 @@ class RPCServer:
                     bool(request.get("remote", False)),
                     permission,
                     request.get("provider"),
+                    request.get("effort"),
                 )
                 try:
                     async for event in run:

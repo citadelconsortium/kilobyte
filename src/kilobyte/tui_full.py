@@ -23,11 +23,9 @@ from typing import Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
-from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style
 
@@ -77,6 +75,7 @@ class KiloApp:
         self.started = 0.0
         self.spin = 0
         self.show_panel = False
+        self.effort = "medium"
         self._active: asyncio.Task | None = None
 
         self.input = Buffer(multiline=False, accept_handler=self._on_submit)
@@ -109,7 +108,7 @@ class KiloApp:
             glyph = SPINNER[self.spin % len(SPINNER)]
             phase = self.phase or ACTIVITY[(self.spin // 12) % len(ACTIVITY)]
             elapsed = time.monotonic() - self.started if self.started else 0
-            return [("class:status", f" {glyph} "), ("class:kilo", phase), ("class:dim", f"  {elapsed:0.0f}s · {self.model_name}  (ctrl-c to cancel)")]
+            return [("class:status", f" {glyph} "), ("class:kilo", phase), ("class:dim", f"  {elapsed:0.0f}s · {self.model_name} · effort {self.effort}  (ctrl-c to cancel)")]
         return [("class:dim", "  ready — type a message and press Enter")]
 
     def _panel_text(self):
@@ -131,7 +130,6 @@ class KiloApp:
         return rows
 
     def _build_layout(self) -> None:
-        banner = Window(FormattedTextControl(self._banner_text), height=len(KILO_ART), style="class:banner")
         rule = Window(height=1, char="─", style="class:sep")
         output = Window(
             BufferControl(buffer=self._output_buffer(), focusable=False),
@@ -179,25 +177,58 @@ class KiloApp:
         text = buff.text.strip()
         if not text:
             return False
+        self.input.reset()
         if text in {"/quit", "/exit", "/q", "quit", "exit"}:
             self.app.exit()
             return False
         if text == "/clear":
             self.output.set_document_from_text("", bypass_readonly=True)
             return False
+        if text == "/new":
+            self.session_id = None
+            self._append("\n— new session; previous context cleared —\n")
+            return False
+        if text == "/help":
+            self._append(
+                "\ncommands:\n"
+                "  /effort high|medium|low   depth vs speed of replies\n"
+                "  /cloud <question>         send one message to a cloud model\n"
+                "  /new                      start a fresh session\n"
+                "  /clear                    clear the screen\n"
+                "  /quit                     leave\n"
+                "keys: F2 runtime · Ctrl-L clear · Ctrl-C cancel · Ctrl-Q quit\n"
+            )
+            return False
+        if text.startswith("/effort"):
+            parts = text.split()
+            level = parts[1].lower() if len(parts) > 1 else ""
+            if level in {"high", "medium", "low"}:
+                self.effort = level
+                self._append(f"\n— effort set to {level} —\n")
+            else:
+                self._append(f"\n— effort is {self.effort}; use /effort high|medium|low —\n")
+            return False
+        provider = None
+        if text.startswith("/cloud"):
+            rest = text[len("/cloud"):].strip()
+            if not rest:
+                self._append("\n— usage: /cloud <question> (sends one message to a cloud model) —\n")
+                return False
+            provider, text = "", rest
         self._append(f"\n› {text}\n\n")
-        self._active = asyncio.create_task(self._ask(text))
-        return False  # keep the buffer; we clear it manually
+        self._active = asyncio.create_task(self._ask(text, provider))
+        return False
 
-    async def _ask(self, text: str) -> None:
-        self.input.reset()
+    async def _ask(self, text: str, provider: str | None = None) -> None:
         self.streaming = False
         self.phase = "thinking"
         self.started = time.monotonic()
         reader = writer = None
         try:
             reader, writer = await asyncio.open_unix_connection(self.client.socket_path)
-            req = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd())}
+            req: dict[str, Any] = {"command": "chat", "text": text, "session_id": self.session_id, "cwd": str(Path.cwd()), "effort": self.effort}
+            if provider is not None:
+                req["provider"] = provider
             writer.write((json.dumps(req) + "\n").encode())
             await writer.drain()
             while raw := await reader.readline():

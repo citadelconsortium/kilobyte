@@ -53,7 +53,13 @@ class Agent:
         remote: bool = False,
         permission_callback: PermissionCallback | None = None,
         provider: str | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        # Effort trades answer length and tool-step budget for speed. On slow hardware a
+        # shorter reply is faster, so this is a direct latency lever, not just verbosity.
+        effort_tokens = {"low": 256, "medium": 640, "high": self.settings.max_output_tokens}
+        max_tokens = effort_tokens.get(effort or "", self.settings.max_output_tokens)
+        max_steps = {"low": 4, "medium": 7, "high": self.settings.max_agent_steps}.get(effort or "", self.settings.max_agent_steps)
         session_id = session_id or self.memory.new_session("telegram" if remote else "terminal", text[:80])
         self.memory.ensure_session(session_id, "telegram" if remote else "terminal")
         self.memory.add_message(session_id, "user", text)
@@ -107,7 +113,7 @@ class Agent:
             # which on slow hardware is minutes, and silence there reads as a hang.
             yield {"type": "warming"}
 
-        for step in range(self.settings.max_agent_steps):
+        for step in range(max_steps):
             if escalated is None:
                 await self.runtime.ensure_ready()
             yield {"type": "thinking", "step": step + 1}
@@ -116,7 +122,7 @@ class Agent:
                 "messages": messages,
                 "temperature": 0.6,
                 "top_p": 0.95,
-                "max_tokens": self.settings.max_output_tokens,
+                "max_tokens": max_tokens,
             }
             if tool_schemas:
                 payload["tools"] = tool_schemas
@@ -129,7 +135,7 @@ class Agent:
             # does not close the inner chat_stream generator, leaking the open HTTP
             # request to llama-server and its held inference slot indefinitely.
             source = (
-                self.providers.stream(escalated, messages, self.settings.max_output_tokens)
+                self.providers.stream(escalated, messages, max_tokens)
                 if escalated is not None
                 else self.runtime.chat_stream(payload)
             )
