@@ -13,7 +13,7 @@ MODEL_URL = (
     "https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/"
     "Qwen3-1.7B-Q4_K_M.gguf?download=true"
 )
-MODEL_SHA256 = "54df7f01a141511f7edce0e37135c235bc82540a38cec819421bb7221bcb3506"
+MODEL_SHA256 = "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7"
 MODEL_REPOSITORY = "citadelconsortium/kilobyte (release brain-1.0)"
 MODEL_QUANTIZATION = "Q4_K_M"
 

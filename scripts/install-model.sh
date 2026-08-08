@@ -3,8 +3,8 @@ set -euo pipefail
 
 MODEL_DIR="${KILOBYTE_MODEL_DIR:-/var/lib/kilobyte/models}"
 MODEL_FILE="$MODEL_DIR/kilobyte.gguf"
-MODEL_URL="https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.0/kilobyte.gguf"
-EXPECTED="54df7f01a141511f7edce0e37135c235bc82540a38cec819421bb7221bcb3506"
+MODEL_URL="https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.1/kilobyte.gguf"
+EXPECTED="6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7"
 OWNER="${KILOBYTE_USER:-kilobyte}"
 GROUP="$(id -gn "$OWNER" 2>/dev/null || echo "$OWNER")"
 
