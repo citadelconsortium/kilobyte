@@ -207,6 +207,7 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
         warmup_ratio=tc["warmup_ratio"],
         weight_decay=tc["weight_decay"],
         fp16=cuda,
+        use_cpu=not cuda,
         logging_steps=1,
         save_strategy="no",
         report_to=[],
