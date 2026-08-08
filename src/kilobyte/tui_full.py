@@ -351,14 +351,15 @@ class KiloApp:
             return True
         if text == "/new":
             self.session_id = None
-            self._append("\n— new session —\n")
+            self.output.buffer.set_document(Document("", 0), bypass_readonly=True)
+            self._append("— new session · the previous chat is saved (use /kilochats to reopen it) —\n")
             return True
         if text == "/help":
             self._append(
                 "\ncommands:\n"
                 "  /effort high|medium|low   depth vs speed of replies\n"
                 "  /agent <name>|off         force research|coding|security|systems, or auto\n"
-                "  /chats                    list past sessions to resume\n"
+                "  /chats · /kilochats       list past chats; type a number to continue one\n"
                 "  /chat <n>                 open a past session by number\n"
                 "  /cloud [question]         set up / use a cloud model (key selector)\n"
                 "  /switch                   flip between cloud and local Kilo (Kilo default)\n"
@@ -371,6 +372,9 @@ class KiloApp:
             return True
         if text == "/chats":
             self._spawn(self._list_chats())
+            return True
+        if text in ("/kilochats", "/kchats"):
+            self._spawn(self._kilochats())
             return True
         if text.startswith("/chat "):
             self._spawn(self._open_chat(text.split(maxsplit=1)[1].strip()))
@@ -481,6 +485,13 @@ class KiloApp:
             lines.append(f"  {i:>2}. {title[:56]}  · {s.get('messages',0)} msgs")
         self._append("\n".join(lines) + "\n")
 
+    async def _kilochats(self) -> None:
+        """List past chats and arm a selector: the next number typed opens and continues it."""
+        await self._list_chats()
+        if self._sessions:
+            self._append("  \u2192 type a number to open and continue that chat, or keep typing to stay here\n")
+            self._pending = {"kind": "chat_pick"}
+
     async def _open_chat(self, arg: str) -> None:
         try:
             session = self._sessions[int(arg) - 1]
@@ -531,6 +542,12 @@ class KiloApp:
         pending = self._pending or {}
         self._pending = None
         kind = pending.get("kind")
+        if kind == "chat_pick":
+            if text.strip().isdigit():
+                await self._open_chat(text.strip())
+            else:
+                self._append("— stayed in the current chat —\n")
+            return
         if kind == "model_pick":
             name = None
             if text.isdigit() and 1 <= int(text) <= len(self._model_options):
