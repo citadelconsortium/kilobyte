@@ -1,48 +1,84 @@
 #!/usr/bin/env python3
-"""Kaggle conversion notebook: turn the trained merged HF weights into a quantised GGUF.
+"""Kaggle conversion notebook (ONLINE): merged HF weights -> quantised GGUF, fast.
 
-Runs as a separate Kaggle kernel (internet ON) that mounts the training kernel's output
-(the merged weights) as an input, builds llama.cpp's converter + quantiser, and produces
-the one canonical brain ``kilobyte.gguf`` (Q4_K_M) in /kaggle/working.
+With internet available, this avoids the slow from-source compile: it clones llama.cpp for
+the pure-Python converter and downloads llama.cpp's prebuilt Linux release binary for the
+quantiser. Falls back to a source build only if the prebuilt binary cannot run.
 
-Kernel metadata for this file:
-    kernel_sources : ["oversightnode/kilobyte-train"]   (mounts the merged weights)
-    enable_internet: true                                (to fetch llama.cpp + deps)
-    enable_gpu     : false                               (conversion is CPU work)
-Outputs:
-    /kaggle/working/kilobyte.gguf     the quantised brain, ready to download
+Kernel metadata:
+    kernel_sources : ["oversightnode/kilobyte-train"]   (the merged weights)
+    enable_internet: true
+    enable_gpu     : false
+Output:
+    /kaggle/working/kilobyte.gguf     Q4_K_M brain, ready to download
 """
 
 from __future__ import annotations
 
 import glob
+import json
 import os
 import subprocess
 import sys
+import urllib.request
 
-LLAMA = "/kaggle/working/llama.cpp"
-OUT = "/kaggle/working/kilobyte.gguf"
-F16 = "/kaggle/working/kilobyte-f16.gguf"
-QUANT = "Q4_K_M"
+WORK = "/kaggle/working"
+LLAMA = f"{WORK}/llama.cpp"
+F16 = f"{WORK}/kilobyte-f16.gguf"
+OUT = f"{WORK}/kilobyte.gguf"
 
 
-def run(cmd: str) -> None:
+def run(cmd: str, **kw) -> int:
     print("+", cmd, flush=True)
-    subprocess.check_call(cmd, shell=True)
+    return subprocess.call(cmd, shell=True, **kw)
 
 
 def find_merged() -> str:
-    """Locate the merged HF weights among the mounted inputs (a dir with config.json and a
-    real, multi-hundred-MB safetensors — not the tiny LoRA adapter)."""
     for cfg in glob.glob("/kaggle/input/**/config.json", recursive=True):
         d = os.path.dirname(cfg)
-        weights = glob.glob(os.path.join(d, "*.safetensors")) + glob.glob(os.path.join(d, "*.bin"))
-        if weights and any(os.path.getsize(w) > 200 * 1024 * 1024 for w in weights):
+        if any(os.path.getsize(w) > 200 * 1024 * 1024
+               for w in glob.glob(os.path.join(d, "*.safetensors")) + glob.glob(os.path.join(d, "*.bin"))):
             return d
-    # Fall back to any 'merged' dir even if size heuristics fail.
     for cfg in glob.glob("/kaggle/input/**/merged/config.json", recursive=True):
         return os.path.dirname(cfg)
     raise SystemExit("merged weights not found under /kaggle/input")
+
+
+def prebuilt_quantize(f16: str, out: str) -> bool:
+    """Download the latest llama.cpp Ubuntu release binaries and quantise with them."""
+    try:
+        rel = json.load(urllib.request.urlopen(
+            "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest", timeout=30))
+        asset = next(a for a in rel["assets"]
+                     if "ubuntu-x64" in a["name"] and a["name"].endswith(".zip"))
+        print("prebuilt:", asset["name"], flush=True)
+        run(f"curl -sSL '{asset['browser_download_url']}' -o {WORK}/llbin.zip")
+        run(f"cd {WORK} && unzip -oq llbin.zip -d llbin")
+    except Exception as exc:
+        print("prebuilt fetch failed:", repr(exc)[:200], flush=True)
+        return False
+    bins = glob.glob(f"{WORK}/llbin/**/llama-quantize", recursive=True)
+    if not bins:
+        return False
+    q = bins[0]
+    run(f"chmod +x {q}")
+    # the release ships shared libs alongside; point the loader at them
+    libdir = os.path.dirname(q)
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = libdir + ":" + env.get("LD_LIBRARY_PATH", "")
+    return run(f"{q} {f16} {out} Q4_K_M", env=env) == 0 and os.path.exists(out)
+
+
+def source_quantize(f16: str, out: str) -> bool:
+    if run(f"cmake -S {LLAMA} -B {LLAMA}/build -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF "
+           f"-DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF") != 0:
+        return False
+    if run(f"cmake --build {LLAMA}/build --target llama-quantize -j4") != 0:
+        return False
+    for cand in (f"{LLAMA}/build/bin/llama-quantize", f"{LLAMA}/build/llama-quantize"):
+        if os.path.exists(cand):
+            return run(f"{cand} {f16} {out} Q4_K_M") == 0 and os.path.exists(out)
+    return False
 
 
 def main() -> int:
@@ -51,21 +87,20 @@ def main() -> int:
     for w in glob.glob(os.path.join(merged, "*.safetensors")):
         print(f"  weight {os.path.getsize(w) / 1e9:.2f} GB  {os.path.basename(w)}", flush=True)
 
-    if not os.path.isdir(LLAMA):
-        run(f"git clone --depth 1 https://github.com/ggml-org/llama.cpp {LLAMA}")
-    run(f"pip install -q gguf sentencepiece protobuf")
-    # Build only the quantiser (fast); the converter is a pure-python script.
-    run(f"cmake -S {LLAMA} -B {LLAMA}/build -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DBUILD_SHARED_LIBS=OFF")
-    run(f"cmake --build {LLAMA}/build --target llama-quantize -j4")
+    run(f"git clone --depth 1 https://github.com/ggml-org/llama.cpp {LLAMA}")
+    run("pip install -q gguf sentencepiece protobuf")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = f"{LLAMA}/gguf-py:" + env.get("PYTHONPATH", "")
+    if run(f"python {LLAMA}/convert_hf_to_gguf.py {merged} --outfile {F16} --outtype f16", env=env) != 0 \
+            or not os.path.exists(F16):
+        raise SystemExit("convert_hf_to_gguf.py failed")
+    print(f"f16 GGUF: {os.path.getsize(F16) / 1e9:.2f} GB", flush=True)
 
-    run(f"python {LLAMA}/convert_hf_to_gguf.py {merged} --outfile {F16} --outtype f16")
-    quant_bin = f"{LLAMA}/build/bin/llama-quantize"
-    if not os.path.exists(quant_bin):
-        quant_bin = f"{LLAMA}/build/llama-quantize"
-    run(f"{quant_bin} {F16} {OUT} {QUANT}")
-    os.remove(F16)  # keep only the final quantised brain to shrink the download
-    size = os.path.getsize(OUT)
-    print(f"GGUF READY: {OUT}  {size / 1e9:.2f} GB", flush=True)
+    if prebuilt_quantize(F16, OUT) or source_quantize(F16, OUT):
+        os.remove(F16)
+        print(f"GGUF READY (Q4_K_M): {os.path.getsize(OUT) / 1e9:.2f} GB", flush=True)
+    else:
+        print("quantiser failed — leaving f16 GGUF for downstream quantisation", flush=True)
     return 0
 
 

@@ -1,4 +1,4 @@
 """Kilobyte: one local model, safely connected to the machine."""
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
