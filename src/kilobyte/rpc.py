@@ -71,6 +71,12 @@ class RPCServer:
             elif command == "tor_status":
                 from . import net
                 await self._send(writer, {"type": "result", "data": {"available": net.tor_available()}})
+            elif command == "provider_models":
+                try:
+                    models = await asyncio.to_thread(self.agent.providers.list_models, None, bool(request.get("only_free", True)))
+                    await self._send(writer, {"type": "result", "data": {"ok": True, "models": models}})
+                except Exception as exc:
+                    await self._send(writer, {"type": "result", "data": {"ok": False, "error": str(exc)}})
             elif command == "provider_info":
                 await self._send(writer, {"type": "result", "data": self.agent.providers.info()})
             elif command == "set_model":

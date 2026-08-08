@@ -137,6 +137,7 @@ class KiloApp:
         self.cloud_provider = ""
         self.private_mode = False   # route web tools through Tor
         self.current_task = ""      # text of the request being worked on
+        self._model_options: list[str] = []
         self.usage: dict[str, Any] = {}   # token usage from the last reply
         self._answered = False            # whether the current reply has started printing
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
@@ -184,7 +185,7 @@ class KiloApp:
         info = [
             [("class:banner.hi", "KILOBYTE  "), ("class:on" if online else "class:off", dot)],
             [("class:tagline", "local-first · one model · no cloud by default")],
-            [("class:dim", f"brain   {self.model_name}")],
+            [("class:on", f"brain   {self.model_name}")],
             [("class:dim", f"context {prof.get('context_size','?')}   threads {prof.get('threads','?')}   gpu {prof.get('gpu_layers','?')}")],
             [("class:dim", "tools   files · shell · web · memory · skills")],
             [("class:tagline", "made by 0v3r51ght  ·  /help · F2 runtime · Ctrl-Q quit")],
@@ -436,7 +437,11 @@ class KiloApp:
                 self._spawn(self._private_status())
             return True
         if text.startswith("/model"):
-            self._spawn(self._model_cmd(text[len("/model"):].strip()))
+            arg = text[len("/model"):].strip()
+            if arg:
+                self._spawn(self._model_cmd(arg))
+            else:
+                self._spawn(self._model_picker())
             return True
         if text == "/cancel":
             cancelled = False
@@ -521,6 +526,17 @@ class KiloApp:
         pending = self._pending or {}
         self._pending = None
         kind = pending.get("kind")
+        if kind == "model_pick":
+            name = None
+            if text.isdigit() and 1 <= int(text) <= len(self._model_options):
+                name = self._model_options[int(text) - 1]
+            elif text.strip() in self._model_options:
+                name = text.strip()
+            if not name:
+                self._append("\n— cancelled —\n")
+                return
+            await self._model_cmd(name)
+            return
         if kind == "cloud_pick":
             name = None
             names = [n for n, _ in self._cloud_options]
@@ -584,6 +600,36 @@ class KiloApp:
         except (ConnectionError, FileNotFoundError, OSError):
             pass
         self.app.invalidate()
+
+    async def _model_picker(self) -> None:
+        try:
+            info = await self.client.request("provider_info")
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ {exc}\n")
+            return
+        if not info.get("default"):
+            self._append("\n— no cloud provider configured; run /cloud first —\n")
+            return
+        self._append("\n☁ fetching available models…\n")
+        try:
+            res = await self.client.request("provider_models")
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ {exc}\n")
+            return
+        if not res.get("ok"):
+            self._append(f"\n⚠ {res.get('error', 'could not list models')} — use /model <name>\n")
+            return
+        models = res.get("models", [])[:40]
+        if not models:
+            self._append("\n— no models returned; use /model <name> —\n")
+            return
+        self._model_options = models
+        lines = [f"\n☁ {info['default']} · current {info.get('model') or '(unset)'} — type a number to switch:"]
+        for i, m in enumerate(models, 1):
+            lines.append(f"  {i:>2}. {m}")
+        lines.append("  (blank line cancels)")
+        self._append("\n".join(lines) + "\n")
+        self._pending = {"kind": "model_pick"}
 
     async def _model_cmd(self, arg: str) -> None:
         try:

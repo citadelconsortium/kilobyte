@@ -139,6 +139,24 @@ class ProviderRegistry:
             pass
         return self.resolve(name)
 
+    def list_models(self, name: str | None = None, only_free: bool = True) -> list[str]:
+        """Fetch the provider's model catalogue so the user can pick without researching.
+        For OpenRouter, free models (id ending ':free') are surfaced first."""
+        import urllib.request
+        prov = self.resolve(name)
+        req = urllib.request.Request(
+            f"{prov.base_url}/models",
+            headers={"Authorization": f"Bearer {prov.api_key}", "Accept": "application/json", **_ATTRIBUTION},
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
+        if only_free and "openrouter" in prov.base_url:
+            free = sorted(i for i in ids if str(i).endswith(":free"))
+            if free:
+                return free
+        return sorted(ids)
+
     def set_model(self, name: str, model: str) -> str:
         """Change the model for a configured provider without needing the key again."""
         import os as _os
