@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -238,16 +239,25 @@ class KiloApp:
             nl = self._line_buf.find("\n")
             if nl >= 0:
                 line, self._line_buf = self._line_buf[:nl], self._line_buf[nl + 1:]
-                self._bline(line)
+                self._bline(self._clean_md(line))
             elif len(self._line_buf) >= inner:
                 self._bline(self._line_buf[:inner])
                 self._line_buf = self._line_buf[inner:]
             else:
                 break
 
+    def _clean_md(self, line: str) -> str:
+        """Strip markdown noise (**, *, #, >) so replies read clean; the lexer colours
+        the rest. Runs per already-buffered line, so no newlines to worry about."""
+        s = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
+        s = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'\1', s)
+        s = re.sub(r'^(\s{0,3})#{1,6}\s+', r'\1', s)
+        s = re.sub(r'^(\s{0,3})>\s?', r'\1', s)
+        return s
+
     def _flush_boxed(self) -> None:
         if self._line_buf:
-            self._bline(self._line_buf)
+            self._bline(self._clean_md(self._line_buf))
             self._line_buf = ""
 
     def _input_prompt(self):
