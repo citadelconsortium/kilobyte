@@ -408,6 +408,10 @@ class KiloApp:
             return True
         if text.startswith("/cloud"):
             rest = text[len("/cloud"):].strip()
+            # Re-run the provider picker to add or change an API key at any time.
+            if rest.lower() in ("add", "key", "keys", "change", "new", "setup"):
+                self._spawn(self._cloud_setup())
+                return True
             # No provider yet: run the pick-and-key setup, carrying any question along.
             if not self.cloud_provider:
                 self._spawn(self._cloud_setup(pending_question=rest or None))
