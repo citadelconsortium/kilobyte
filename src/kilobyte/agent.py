@@ -89,9 +89,10 @@ class Agent:
     ) -> AsyncIterator[dict[str, Any]]:
         # Effort trades answer length and tool-step budget for speed. On slow hardware a
         # shorter reply is faster, so this is a direct latency lever, not just verbosity.
-        effort_tokens = {"low": 256, "medium": 640, "high": self.settings.max_output_tokens}
+        effort_tokens = {"low": 320, "medium": 768, "high": self.settings.max_output_tokens}
         max_tokens = effort_tokens.get(effort or "", self.settings.max_output_tokens)
-        max_steps = {"low": 4, "medium": 7, "high": self.settings.max_agent_steps}.get(effort or "", self.settings.max_agent_steps)
+        # Deep tasks need room to work: medium is generous, high uses the full budget.
+        max_steps = {"low": 6, "medium": 16, "high": self.settings.max_agent_steps}.get(effort or "", self.settings.max_agent_steps)
         session_id = session_id or self.memory.new_session("telegram" if remote else "terminal", text[:80])
         self.memory.ensure_session(session_id, "telegram" if remote else "terminal")
         self.memory.add_message(session_id, "user", text)
@@ -278,7 +279,8 @@ class Agent:
                     yield {"type": "tool_end", "name": name, "ok": False, "summary": str(exc)}
                 messages.append({"role": "tool", "tool_call_id": call["id"], "name": name, "content": output})
 
-        message = f"Stopped after {self.settings.max_agent_steps} tool steps to prevent a loop."
+        message = (f"I've reached the {max_steps}-step safety limit for one turn. Here is what I "
+                   "have so far; tell me to continue and I'll pick up from here.")
         self.memory.add_message(session_id, "assistant", message)
         yield {"type": "token", "text": message}
         yield {"type": "done", "session_id": session_id, "limited": True}

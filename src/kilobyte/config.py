@@ -33,8 +33,8 @@ class Settings:
     llama_host: str = "127.0.0.1"
     llama_port: int = field(default_factory=lambda: int(os.environ.get("KILOBYTE_LLAMA_PORT", "11435")))
     context_size: int = field(default_factory=lambda: int(os.environ.get("KILOBYTE_CONTEXT", "0")))
-    max_agent_steps: int = 10
-    max_output_tokens: int = 1024
+    max_agent_steps: int = 30
+    max_output_tokens: int = 1536
     command_timeout: int = 120
     # Bytes captured from a subprocess; what actually reaches the model is bounded
     # separately by max_tool_result_tokens, because bytes are a poor proxy for context
