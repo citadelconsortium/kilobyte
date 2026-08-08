@@ -92,7 +92,7 @@ class Agent:
         effort_tokens = {"low": 320, "medium": 768, "high": self.settings.max_output_tokens}
         max_tokens = effort_tokens.get(effort or "", self.settings.max_output_tokens)
         # Deep tasks need room to work: medium is generous, high uses the full budget.
-        max_steps = {"low": 6, "medium": 16, "high": self.settings.max_agent_steps}.get(effort or "", self.settings.max_agent_steps)
+        max_steps = {"low": 8, "medium": 24, "high": self.settings.max_agent_steps}.get(effort or "", self.settings.max_agent_steps)
         session_id = session_id or self.memory.new_session("telegram" if remote else "terminal", text[:80])
         self.memory.ensure_session(session_id, "telegram" if remote else "terminal")
         self.memory.add_message(session_id, "user", text)
