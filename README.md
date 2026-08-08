@@ -1,4 +1,19 @@
-# Kilobyte
+<p align="center"><img src="assets/kilo-mascot.svg" width="132" alt="Kilo, the Kilobyte mascot"></p>
+
+<h1 align="center">Kilobyte</h1>
+<p align="center"><b>The local-first AI agent that actually does the work — not another chat wrapper.</b></p>
+
+<p align="center"><i>Reads your files · runs your shell · researches the web · remembers across sessions · escalates to a frontier cloud model on demand — all from one prebuilt brain, fully offline-capable, in a TUI that looks like a pro tool.</i></p>
+
+### Why Kilobyte beats the rest
+- **It acts, it doesn’t just talk** — real tools (shell, files, web), and it works *until the task is done*, not until a step counter runs out.
+- **Private by default** — your brain runs locally; nothing leaves the box unless you send it to /cloud on purpose.
+- **Powerful on demand** — /cloud escalation hands any of 14 frontier providers your machine + your tools.
+- **Grounded & honest** — an orchestrator commissions specialist agents (coding, security, research, systems, private) over an offline reference bank.
+- **Production-ready** — one-line installer, checksum-verified brains with rollback, 100+ tests, systemd, Telegram.
+
+---
+
 
 Kilobyte is a local-first terminal AI built around exactly one prebuilt GGUF brain. A persistent
 `llama-server` instance provides inference; a deterministic Python framework owns IPC, resources,
