@@ -86,7 +86,9 @@ SECURITY = Profile(
         "logs and traffic, respond to incidents, do forensics, and verify the remediation.\n"
         "- Interpret only what tools actually returned; quote the decisive output.\n"
         "- Note the authorisation assumption, prefer the least-damaging check that proves the\n"
-        "  point, and never fabricate a finding."
+        "  point, and never fabricate a finding.\n"
+        "- Install tooling only from official repositories — on Arch, pacman and the BlackArch\n"
+        "  repository; never the AUR."
     ),
 )
 
@@ -98,7 +100,9 @@ SYSTEMS = Profile(
         "Systems mode. Diagnose from the live machine, not from memory.\n"
         "- Inspect real state — services, ports, logs, config, resources — with tools.\n"
         "- Base the diagnosis on what the commands returned; quote the decisive line.\n"
-        "- Confirm a fix worked by re-checking, not by assuming."
+        "- Confirm a fix worked by re-checking, not by assuming.\n"
+        "- Install packages only via the official package manager (pacman on Arch, from the\n"
+        "  official repos); never the AUR or unofficial sources."
     ),
 )
 
@@ -144,8 +148,28 @@ PRIVATE = Profile(
     ),
 )
 
+ORCHESTRATOR = Profile(
+    name="orchestrator",
+    hint="reads the goal, commissions the right specialists, drives it to done",
+    instructions=(
+        "Orchestrator mode — read the request and turn it into a finished result, fast and\n"
+        "correct. You are one model that adopts the right specialist discipline per step.\n"
+        "- Restate the real goal in one line, then decide what it needs.\n"
+        "- Commission the right discipline for each part and apply it: research (retrieve and\n"
+        "  cite), coding (repo-grounded, actually run it), security (recon -> exploit -> report\n"
+        "  on authorised targets), systems (inspect the live machine), private (route via Tor).\n"
+        "  Switch discipline as the task moves; combine them when a goal spans several.\n"
+        "- Break a multi-step goal into ordered steps and execute them, checking each result\n"
+        "  before the next. Never stop at a plan or a promise — carry it to a verified result.\n"
+        "- If you don't know how, research it from official/trusted sources first, then act,\n"
+        "  and save what worked with save_skill.\n"
+        "- Take the most direct route that is actually verified: no guessing, no unproven\n"
+        "  claims, no wasted steps. Speed comes from choosing well, accuracy from checking."
+    ),
+)
+
 PROFILES: dict[str, Profile] = {
-    p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL, CONVERSATION, PRIVATE)
+    p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL, CONVERSATION, PRIVATE, ORCHESTRATOR)
 }
 
 # Keyword hints for auto-selecting a profile when the user has not named one. Deliberately
@@ -155,7 +179,7 @@ _ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("coding", ("code", "bug", "compile", "build", "test", "refactor", "function", "repository", "repo", "stack trace", "error in")),
     ("security", ("hack", "hacking", "exploit", "vulnerability", "cve", "nmap", "recon", "pentest", "penetration test", "malware", "reverse engineer", "forensic", "payload", "port scan", "privilege escalation")),
     ("private", ("anonymous", "anonymously", "incognito", "mask my ip", "hide my ip", "via tor", "through tor", "private search", "untraceable")),
-    ("systems", ("systemd", "service", "ssh", "firewall", "disk", "memory", "process", "log", "network", "docker", "container", "daemon")),
+    ("systems", ("systemd", "service", "ssh", "firewall", "disk", "memory", "process", "log", "network", "docker", "container", "daemon", "install", "package", "pacman", "blackarch", "dependency", "apt", "dnf")),
 )
 
 
@@ -176,4 +200,4 @@ def select(text: str, explicit: str | None = None) -> Profile:
     for name, words in _ROUTES:
         if any(word in lowered for word in words):
             return PROFILES[name]
-    return CONVERSATION
+    return ORCHESTRATOR
