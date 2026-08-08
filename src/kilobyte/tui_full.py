@@ -185,6 +185,7 @@ class KiloApp:
         self.current_task = ""      # text of the request being worked on
         self._model_options: list[str] = []
         self._perm_future: asyncio.Future | None = None   # resolved by 1/2/3 approval input
+        self._line_buf = ""   # accumulates a streamed line until it can be boxed
         self.usage: dict[str, Any] = {}   # token usage from the last reply
         self._answered = False            # whether the current reply has started printing
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
@@ -202,7 +203,7 @@ class KiloApp:
             focusable=False, style="class:output", lexer=_ChatLexer(),
         )
         self.input = TextArea(
-            height=1, multiline=False, wrap_lines=False, prompt="  › ",
+            height=1, multiline=False, wrap_lines=False, prompt=self._input_prompt,
             style="class:prompt", accept_handler=self._accept,
             completer=_SlashCompleter(), complete_while_typing=True,
         )
@@ -220,9 +221,41 @@ class KiloApp:
     def _rule(self, label: str = "") -> str:
         w = self._cw()
         if label:
-            head = "\u2500\u2500\u2500" + label + " "
-            return head + "\u2500" * max(0, w - len(head))
-        return "\u2500" * w
+            head = "\u256d\u2500 " + label + " "
+            return head + "\u2500" * max(0, w - len(head) - 1) + "\u256e"
+        return "\u2570" + "\u2500" * max(0, w - 2) + "\u256f"
+
+    def _bline(self, text: str = "") -> None:
+        """Emit one fully-closed box line: | text ... | padded to the box width."""
+        inner = max(1, self._cw() - 3)
+        self._append("\u2502 " + text[:inner].ljust(inner) + "\u2502\n")
+
+    def _stream_boxed(self, text: str) -> None:
+        """Buffer streamed tokens and emit complete closed-box lines as they fill."""
+        inner = max(1, self._cw() - 3)
+        self._line_buf += text
+        while True:
+            nl = self._line_buf.find("\n")
+            if nl >= 0:
+                line, self._line_buf = self._line_buf[:nl], self._line_buf[nl + 1:]
+                self._bline(line)
+            elif len(self._line_buf) >= inner:
+                self._bline(self._line_buf[:inner])
+                self._line_buf = self._line_buf[inner:]
+            else:
+                break
+
+    def _flush_boxed(self) -> None:
+        if self._line_buf:
+            self._bline(self._line_buf)
+            self._line_buf = ""
+
+    def _input_prompt(self):
+        if self.busy:
+            glyph = PULSE[self.spin % len(PULSE)]
+        else:
+            glyph = "\u203a" if (self.spin // 6) % 2 else "\u276f"
+        return [("class:prompt", f"  {glyph} ")]
 
     # ---- layout -------------------------------------------------------------
 
@@ -371,8 +404,15 @@ class KiloApp:
                 self.app.invalidate()
 
     def _enqueue(self, text: str, provider: str | None = None) -> None:
-        body = "\n".join("\u2502 " + ln for ln in text.split("\n"))
-        self._append(f"\n{self._rule('Sir')}\n{body}\n{self._rule()}\n")
+        inner = max(1, self._cw() - 3)
+        self._append("\n" + self._rule("Sir") + "\n")
+        for para in text.split("\n"):
+            if not para:
+                self._bline("")
+            while para:
+                self._bline(para[:inner])
+                para = para[inner:]
+        self._append(self._rule() + "\n")
         ahead = (self._queue.qsize() if self._queue else 0) + (1 if self.busy else 0)
         if ahead > 0:
             self._append(f"⏳ queued — {ahead} task(s) ahead\n")
@@ -792,21 +832,23 @@ class KiloApp:
                         label = f"\u2601 {self.cloud_provider}" if self.cloud_active else "Kilo"
                         if self.agent_name:
                             label += f" \u00b7 {self.agent_name}"
-                        self._append(f"\n{self._rule(label)}\n\u2502 ")
+                        self._append("\n" + self._rule(label) + "\n")
                         self._answered = True
+                        self._line_buf = ""
                     self.streaming = True
                     self.tokens += 1
-                    self._append(event.get("text", "").replace("\n", "\n\u2502 "))
+                    self._stream_boxed(event.get("text", ""))
                 elif kind == "tool_start":
                     self.tools_used += 1
                     self.phase = f"running {event['name']}"
                     self.streaming = False
                     args = event.get("arguments") or {}
                     detail = ", ".join(f"{k}={str(v)[:32]}" for k, v in list(args.items())[:2])
-                    self._append(f"\n\u2502 \u25c8 {event['name']} {detail}\n\u2502 ")
+                    self._flush_boxed()
+                    self._bline(f"\u25c8 {event['name']} {detail}")
                 elif kind == "tool_end":
                     ok = "✓" if event.get("ok") else "!"
-                    self._append(f"{ok} {event.get('name')} \u00b7 {str(event.get('summary',''))[:90]}\n\u2502 ")
+                    self._bline(f"{ok} {event.get('name')} \u00b7 {str(event.get('summary',''))[:90]}")
                     self.phase = "interpreting"
                 elif kind == "error":
                     self._append(f"\n⚠ {event.get('error')}\n")
@@ -816,7 +858,8 @@ class KiloApp:
                     await writer.drain()
                 elif kind == "done":
                     if self._answered:
-                        self._append(f"\n{self._rule()}\n")
+                        self._flush_boxed()
+                        self._append(self._rule() + "\n")
                     self.usage = event.get("usage") or {}
                     break
                 self.app.invalidate()
