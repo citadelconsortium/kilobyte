@@ -85,6 +85,7 @@ class Agent:
         provider: str | None = None,
         effort: str | None = None,
         agent_profile: str | None = None,
+        private: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
         # Effort trades answer length and tool-step budget for speed. On slow hardware a
         # shorter reply is faster, so this is a direct latency lever, not just verbosity.
@@ -150,7 +151,7 @@ class Agent:
                 ),
             })
         messages.extend(self._history_within_budget(session_id))
-        context = ToolContext(session_id=session_id, cwd=(cwd or self.settings.home).resolve(), remote=remote, permission_callback=permission_callback)
+        context = ToolContext(session_id=session_id, cwd=(cwd or self.settings.home).resolve(), remote=remote, permission_callback=permission_callback, private=private)
         tool_schemas = self.tools.schemas(remote, text)
         seen_calls: set[tuple[str, str]] = set()
         # A small model sometimes replies with only the *intent* to act ("let me

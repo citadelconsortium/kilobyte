@@ -60,6 +60,17 @@ class RPCServer:
             elif command == "session_history":
                 sid = str(request.get("session_id", ""))
                 await self._send(writer, {"type": "result", "data": {"messages": self.memory.history(sid, 200)}})
+            elif command == "rotate_circuit":
+                from . import net
+                if not net.tor_available():
+                    await self._send(writer, {"type": "result", "data": {"ok": False, "error": "Tor is not available"}})
+                else:
+                    ok = await asyncio.to_thread(net.rotate_circuit)
+                    ip = await asyncio.to_thread(net.exit_ip) if ok else None
+                    await self._send(writer, {"type": "result", "data": {"ok": ok, "exit_ip": ip}})
+            elif command == "tor_status":
+                from . import net
+                await self._send(writer, {"type": "result", "data": {"available": net.tor_available()}})
             elif command == "providers_catalog":
                 from .providers import KNOWN_PROVIDERS
                 configured = self.agent.providers.providers()
@@ -93,6 +104,7 @@ class RPCServer:
                     request.get("provider"),
                     request.get("effort"),
                     request.get("agent_profile"),
+                    bool(request.get("private", False)),
                 )
                 try:
                     async for event in run:

@@ -69,20 +69,24 @@ SECURITY = Profile(
     hint="offensive and defensive security, evidence-driven",
     tools=("run_command", "web_search", "web_fetch", "read_file", "search_files"),
     instructions=(
-        "Security mode — offensive AND defensive. Every conclusion follows from evidence.\n"
-        "Offensive (red team): reconnaissance, enumeration, vulnerability discovery, exploit\n"
-        "  development and validation, privilege escalation, and post-exploitation — on\n"
-        "  systems the operator is authorised to test.\n"
-        "Defensive (blue team): hardening, detection engineering, log and traffic analysis,\n"
-        "  incident response, forensics, and remediation guidance.\n"
-        "Discipline for both:\n"
-        "- Reconnaissance first: gather real output before interpreting it.\n"
-        "- Interpret only what the tools actually returned; never assert a vulnerability,\n"
-        "  version, service, or compromise you have not confirmed.\n"
-        "- Method: objective -> recon -> read evidence -> hypothesis -> targeted test ->\n"
-        "  verify -> report, distinguishing what is confirmed from what is suspected.\n"
-        "- For any offensive step, note the authorisation assumption and prefer the least\n"
-        "  destructive check that proves the point. Report findings with evidence and a fix."
+        "Security mode — offensive AND defensive. Act on the target(s) the operator gives\n"
+        "you, assuming they are authorised to test them. Every conclusion follows from\n"
+        "evidence gathered with the tools, never from assumption.\n"
+        "Offensive playbook (adapt to the target):\n"
+        "  1. Scope — confirm target and objective from the operator.\n"
+        "  2. Recon — passive then active: resolve hosts, enumerate open ports and services,\n"
+        "     fingerprint versions with run_command using the tools present on the machine.\n"
+        "  3. Enumerate — dig into each service: paths, endpoints, users, shares, configs.\n"
+        "  4. Assess — map findings to concrete weaknesses; confirm, do not guess.\n"
+        "  5. Exploit — validate a finding with the least destructive proof that works and\n"
+        "     capture the evidence.\n"
+        "  6. Post-exploitation / privilege escalation — enumerate locally, find esc paths.\n"
+        "  7. Report — confirmed vs suspected, the evidence, the impact, and the fix.\n"
+        "Defensive work runs the same rigour in reverse: harden, build detections, analyse\n"
+        "logs and traffic, respond to incidents, do forensics, and verify the remediation.\n"
+        "- Interpret only what tools actually returned; quote the decisive output.\n"
+        "- Note the authorisation assumption, prefer the least-damaging check that proves the\n"
+        "  point, and never fabricate a finding."
     ),
 )
 
@@ -125,8 +129,23 @@ CONVERSATION = Profile(
     ),
 )
 
+PRIVATE = Profile(
+    name="private",
+    hint="privacy-first web work, routed through Tor",
+    tools=("web_search", "web_fetch", "search_history"),
+    instructions=(
+        "Private mode. The operator wants anonymity for web work.\n"
+        "- web_search and web_fetch are routed through Tor; treat the network as untrusted\n"
+        "  and minimise fingerprint — no logins, no personal identifiers, no real location.\n"
+        "- Never reveal or infer the operator's real identity or location.\n"
+        "- If a request cannot be masked (Tor down), it is refused, not sent unmasked; report\n"
+        "  that plainly instead of retrying in the clear.\n"
+        "- Rotate the exit identity between unrelated tasks to reduce linkability."
+    ),
+)
+
 PROFILES: dict[str, Profile] = {
-    p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL, CONVERSATION)
+    p.name: p for p in (RESEARCH, CODING, SECURITY, SYSTEMS, GENERAL, CONVERSATION, PRIVATE)
 }
 
 # Keyword hints for auto-selecting a profile when the user has not named one. Deliberately
@@ -135,6 +154,7 @@ _ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("research", ("research", "find out", "look up", "latest", "news", "compare", "who is", "what is the current")),
     ("coding", ("code", "bug", "compile", "build", "test", "refactor", "function", "repository", "repo", "stack trace", "error in")),
     ("security", ("hack", "hacking", "exploit", "vulnerability", "cve", "nmap", "recon", "pentest", "penetration test", "malware", "reverse engineer", "forensic", "payload", "port scan", "privilege escalation")),
+    ("private", ("anonymous", "anonymously", "incognito", "mask my ip", "hide my ip", "via tor", "through tor", "private search", "untraceable")),
     ("systems", ("systemd", "service", "ssh", "firewall", "disk", "memory", "process", "log", "network", "docker", "container", "daemon")),
 )
 
@@ -146,7 +166,8 @@ def select(text: str, explicit: str | None = None) -> Profile:
     of the model being left to trail off."""
     # Friendly aliases so a user's natural word reaches the right specialist.
     _ALIASES = {"hacking": "security", "hack": "security", "pentest": "security",
-                "chat": "conversation", "convo": "conversation", "auto": ""}
+                "chat": "conversation", "convo": "conversation", "auto": "",
+                "anon": "private", "anonymous": "private", "tor": "private"}
     if explicit:
         explicit = _ALIASES.get(explicit.lower().strip(), explicit.lower().strip())
     if explicit and explicit in PROFILES:

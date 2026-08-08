@@ -74,7 +74,9 @@ In-TUI commands:
 | `/chats` · `/chat <n>` | List past sessions and resume one |
 | `/cloud [question]` | Set up or use a cloud model — pick a provider, paste an API key |
 | `/switch` | Flip between the cloud provider and local Kilo (Kilo is the default) |
-| `/agent <name>` | Force a specialist mode (research, coding, security, systems, conversation) |
+| `/private [on\|off\|rotate]` | Mask web searches/fetches through Tor — hide IP, rotate exit |
+| `/cancel` | Stop the running request and clear the queue |
+| `/agent <name>` | Force a specialist mode (research, coding, security/hacking, systems, conversation, private) |
 | `/new` · `/clear` · `/help` · `/quit` | Session and screen control |
 
 ## Tools
@@ -94,9 +96,11 @@ rather than recall them, never to invent output or results, and to say it is not
 rather than guess. Sampling runs at a low temperature to curb confident confabulation.
 
 Specialist **agent profiles** sharpen this per domain — `research` (retrieve, corroborate
-across sources, cite), `coding` (never claim code works without running it), `security`
-(evidence-driven), `systems` (diagnose from the live machine), and `conversation` (the
-default: understand the real intent, then follow through to a finished answer). Kilo picks a
+across sources, cite), `coding` (never claim code works without running it), `security` (the
+hacking agent: **offensive and defensive**, with a recon→enumerate→exploit→privesc→report
+playbook that acts on operator-given targets), `systems` (diagnose from the live machine),
+`conversation` (the default: understand intent, then follow through), and `private` (web
+work routed through Tor). Kilo picks a
 profile from the request or you name one with `/agent`; the active profile shows in the
 stats bar. Profiles are added after the cached base prompt, so switching one does not slow
 the response.
@@ -179,6 +183,32 @@ automatic fallback when the local model is slow or fails, the reply is labelled 
 brain that produced it, and with no providers file there is no cloud path at all. Keys
 live in a `0600` file, travel in a header over HTTPS only, and are never logged. Cloud
 escalation is not available over Telegram.
+
+## Private mode (Tor)
+
+`/private on` routes every `web_search` and `web_fetch` through **Tor**, so lookups leave
+the machine from a Tor exit IP instead of yours, and DNS is resolved through Tor too (no
+local leak). `/private rotate` pulls a fresh circuit (new exit IP); `/private off` returns
+to direct requests. The active state shows as `🛡 private` in the stats bar.
+
+It is **fail-closed**: if Tor is unreachable, a private request is **refused, never sent
+unmasked** — privacy is never silently dropped. Requires Tor on the host:
+
+```bash
+sudo pacman -S tor python-pysocks     # or your distro's equivalent
+sudo systemctl enable --now tor
+sudo usermod -aG tor kilobyte          # so the daemon can rotate circuits; restart kilobyte after
+```
+
+Without Tor installed, `/private` still exists but every masked request is refused (by
+design) rather than exposing your IP. Private mode is terminal-only, never over Telegram.
+
+## Requests queue automatically
+
+Send several messages in a row and Kilo handles them **one at a time** — there is a single
+inference slot, so requests are queued (`⧉ queued N` in the stats bar, `queued — N ahead`
+under each) rather than run concurrently and clobber each other. `/cancel` stops the
+current request and clears the queue.
 
 ## The brain
 

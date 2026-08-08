@@ -105,6 +105,7 @@ class KiloApp:
         # active brain to the last-configured cloud provider and back.
         self.cloud_active = False
         self.cloud_provider = ""
+        self.private_mode = False   # route web tools through Tor
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
         self._catalog: dict[str, Any] = {}
         self._cloud_options: list[tuple[str, dict[str, Any]]] = []
@@ -191,6 +192,8 @@ class KiloApp:
         qn = self._queue.qsize() if getattr(self, "_queue", None) else 0
         if qn:
             bar += [("class:stat.k", "   ⧉ queued "), ("class:stat", f"{qn}")]
+        if self.private_mode:
+            bar += [("class:stat.k", "   🛡 "), ("class:kilo", "private")]
         return bar
 
     def _panel_text(self):
@@ -302,6 +305,8 @@ class KiloApp:
                 "  /chat <n>                 open a past session by number\n"
                 "  /cloud [question]         set up / use a cloud model (key selector)\n"
                 "  /switch                   flip between cloud and local Kilo (Kilo default)\n"
+                "  /private [on|off|rotate]  mask web via Tor — hide IP, rotate exit\n"
+                "  /cancel                   stop the running request and clear the queue\n"
                 "  /new · /clear · /quit\n"
                 "keys: F2 runtime panel · Ctrl-C cancel · Ctrl-Q quit\n"
             )
@@ -358,6 +363,37 @@ class KiloApp:
             self.cloud_active = not self.cloud_active
             where = f"cloud · {self.cloud_provider}" if self.cloud_active else "local · Kilo"
             self._append(f"\n— switched to {where} —\n")
+            return True
+        if text.startswith("/private"):
+            arg = text[len("/private"):].strip().lower()
+            if arg == "off":
+                self.private_mode = False
+                self._append("\n— private mode OFF · web requests go direct again —\n")
+            elif arg == "rotate":
+                self._spawn(self._rotate_circuit())
+            elif arg == "status":
+                self._spawn(self._private_status())
+            else:  # "" or "on"
+                self.private_mode = True
+                self._append("\n🛡 private mode ON · web searches and fetches route through Tor.\n"
+                             "   Your IP is hidden; if Tor is down the request is refused, never sent\n"
+                             "   unmasked. Exit with /private off · new IP with /private rotate\n")
+                self._spawn(self._private_status())
+            return True
+        if text == "/cancel":
+            cancelled = False
+            if self._queue is not None:
+                while not self._queue.empty():
+                    try:
+                        self._queue.get_nowait()
+                        self._queue.task_done()
+                        cancelled = True
+                    except Exception:
+                        break
+            if self._active and not self._active.done():
+                self._active.cancel()
+                cancelled = True
+            self._append("\n— cancelled —\n" if cancelled else "\n— nothing to cancel —\n")
             return True
         return False
 
@@ -455,6 +491,26 @@ class KiloApp:
             self._append(f"\n✓ {res.get('label', name)} configured.\n")
             self._run_cloud(name, pending.get("question"))
 
+    async def _rotate_circuit(self) -> None:
+        try:
+            res = await self.client.request("rotate_circuit")
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ could not rotate: {exc}\n")
+            return
+        if res.get("ok"):
+            self._append(f"\n🛡 new Tor circuit · exit IP {res.get('exit_ip') or 'unknown'}\n")
+        else:
+            self._append(f"\n⚠ {res.get('error', 'could not rotate circuit')}\n")
+
+    async def _private_status(self) -> None:
+        try:
+            res = await self.client.request("tor_status")
+        except (ConnectionError, FileNotFoundError, OSError):
+            return
+        if not res.get("available"):
+            self._append("\n⚠ Tor is not reachable — private requests will be refused (fail-closed), "
+                         "not sent unmasked. Start it: sudo systemctl start tor\n")
+
     async def _ask(self, text: str, provider: str | None = None) -> None:
         # A plain message follows the active brain: local Kilo by default, the last cloud
         # provider after /switch.
@@ -475,6 +531,8 @@ class KiloApp:
                 req["agent_profile"] = self.forced_profile
             if provider is not None:
                 req["provider"] = provider
+            if self.private_mode:
+                req["private"] = True
             writer.write((json.dumps(req) + "\n").encode())
             await writer.drain()
             while raw := await reader.readline():

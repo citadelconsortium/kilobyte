@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from . import net
 from .config import Settings
 from .errors import SecurityError, ToolError
 from .mcp import MCPRegistry
@@ -29,6 +30,7 @@ class ToolContext:
     cwd: Path
     remote: bool = False
     permission_callback: PermissionCallback | None = None
+    private: bool = False   # route web tools through Tor (fail-closed)
 
 
 ToolHandler = Callable[[dict[str, Any], ToolContext], Awaitable[Any]]
@@ -46,6 +48,22 @@ class ToolDefinition:
             "type": "function",
             "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
         }
+
+
+def _assert_not_local_literal(url: str) -> None:
+    """Private-mode guard that does NOT resolve DNS (a local lookup would leak the site).
+    Tor resolves the name; here we only reject obviously-local hosts and private IP literals."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise SecurityError("only public HTTP(S) URLs are allowed")
+    host = parsed.hostname.lower()
+    if host == "localhost" or host.endswith(".local") or host.endswith(".onion"):
+        raise SecurityError("refusing a local or onion host in private web mode")
+    try:
+        if not ipaddress.ip_address(host).is_global:
+            raise SecurityError("refusing a non-public IP literal in private web mode")
+    except ValueError:
+        pass  # a hostname; Tor will resolve it
 
 
 def _assert_public(url: str) -> None:
@@ -271,24 +289,32 @@ class ToolRegistry:
         return url
 
     @staticmethod
-    def _request_text(url: str, max_bytes: int = 1_000_000) -> tuple[str, str]:
+    def _request_text(url: str, max_bytes: int = 1_000_000, private: bool = False) -> tuple[str, str]:
         request = urllib.request.Request(url, headers={"User-Agent": "Kilobyte/0.1 (+local-first terminal assistant)", "Accept": "text/html,text/plain,application/json"})
         # Redirects are followed by default, so validating only the URL we were given
         # leaves the private-address block bypassable: a public host can answer 302 with
         # a location on the local network. Every hop is re-checked instead.
-        opener = urllib.request.build_opener(_ValidatingRedirectHandler)
-        with opener.open(request, timeout=15) as response:
+        if private:
+            # Fail-closed: if privacy was asked for but Tor is not reachable, do NOT send —
+            # a silent direct connection would expose the real IP, the opposite of intent.
+            if not net.tor_available():
+                raise ToolError("private mode is on but Tor is not reachable — request NOT sent so your real IP is not exposed. Start tor, or turn it off with /private off.")
+            opener = urllib.request.build_opener(net.SocksHTTPHandler, net.SocksHTTPSHandler, _ValidatingRedirectHandler)
+            timeout = 45
+        else:
+            opener = urllib.request.build_opener(_ValidatingRedirectHandler)
+            timeout = 15
+        with opener.open(request, timeout=timeout) as response:
             content_type = response.headers.get_content_type()
             data = response.read(max_bytes + 1)
         return data[:max_bytes].decode("utf-8", "replace"), content_type
 
     async def _web_search(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-        del ctx
         query = str(args["query"]).strip()
         limit = min(int(args.get("limit", 5)), 10)
         url = "https://www.bing.com/search?" + urllib.parse.urlencode({"q": query, "format": "rss"})
-        body, _ = await asyncio.to_thread(self._request_text, url, 800_000)
-        return {"query": query, "results": self._parse_search_rss(body, limit)}
+        body, _ = await asyncio.to_thread(self._request_text, url, 800_000, ctx.private)
+        return {"query": query, "results": self._parse_search_rss(body, limit), "private": ctx.private}
 
     @staticmethod
     def _parse_search_rss(body: str, limit: int) -> list[dict[str, str]]:
@@ -316,9 +342,15 @@ class ToolRegistry:
         return results
 
     async def _web_fetch(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
-        del ctx
-        url = self._public_url(str(args["url"]))
-        body, content_type = await asyncio.to_thread(self._request_text, url)
+        raw = str(args["url"])
+        # Private mode skips local DNS resolution (it would leak the lookup) — Tor resolves
+        # it — and applies a DNS-free local-host guard instead of the resolving SSRF check.
+        if ctx.private:
+            _assert_not_local_literal(raw)
+            url = raw
+        else:
+            url = self._public_url(raw)
+        body, content_type = await asyncio.to_thread(self._request_text, url, 1_000_000, ctx.private)
         if content_type == "text/html":
             body = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", body)
             body = re.sub(r"(?s)<[^>]+>", " ", body)
