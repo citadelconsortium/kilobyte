@@ -143,11 +143,16 @@ def train(config: dict, data_dir: Path, out_dir: Path) -> Path:
 
     cuda = torch.cuda.is_available()
     if cuda:
-        log(f"CUDA ok: {torch.cuda.device_count()}x {torch.cuda.get_device_name(0)}")
-    else:
-        log("WARNING: no GPU allocated for this session — falling back to CPU in fp32. "
-            "If a GPU was expected, the account's GPU quota is likely exhausted; training "
-            "a 1.5B model on CPU is slow but will not hang.")
+        try:
+            # Sanity: Kaggle sometimes assigns a GPU whose arch the preinstalled torch was
+            # not built for ("no kernel image available"). Prove a kernel actually runs.
+            _ = (torch.zeros(1, device="cuda") + 1).item()
+            log(f"CUDA ok: {torch.cuda.get_device_name(0)}")
+        except Exception as exc:  # noqa: BLE001
+            log(f"WARNING: GPU present but unusable ({str(exc)[:120]}); falling back to CPU fp32.")
+            cuda = False
+    if not cuda:
+        log("Training on CPU in fp32 — slower but reliable; fine for a small dataset.")
     base = resolve_base_model(config)
     tc = config["train"]
     log(f"loading tokenizer from {base}")
