@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any
 
 
-MODEL_FILENAME = "kilobyte-qwen3-1.7b-q4_k_m.gguf"
+MODEL_FILENAME = "kilobyte.gguf"
 MODEL_URL = (
     "https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/"
     "Qwen3-1.7B-Q4_K_M.gguf?download=true"
 )
-MODEL_SHA256 = "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
-MODEL_REPOSITORY = "ggml-org/Qwen3-1.7B-GGUF"
+MODEL_SHA256 = "54df7f01a141511f7edce0e37135c235bc82540a38cec819421bb7221bcb3506"
+MODEL_REPOSITORY = "citadelconsortium/kilobyte (release brain-1.0)"
 MODEL_QUANTIZATION = "Q4_K_M"
 
 

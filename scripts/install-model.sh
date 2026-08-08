@@ -2,9 +2,9 @@
 set -euo pipefail
 
 MODEL_DIR="${KILOBYTE_MODEL_DIR:-/var/lib/kilobyte/models}"
-MODEL_FILE="$MODEL_DIR/kilobyte-qwen3-1.7b-q4_k_m.gguf"
-MODEL_URL="https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf?download=true"
-EXPECTED="d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
+MODEL_FILE="$MODEL_DIR/kilobyte.gguf"
+MODEL_URL="https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.0/kilobyte.gguf"
+EXPECTED="54df7f01a141511f7edce0e37135c235bc82540a38cec819421bb7221bcb3506"
 OWNER="${KILOBYTE_USER:-kilobyte}"
 GROUP="$(id -gn "$OWNER" 2>/dev/null || echo "$OWNER")"
 
@@ -15,7 +15,7 @@ if [[ -f "$MODEL_FILE" ]] && echo "$EXPECTED  $MODEL_FILE" | sha256sum --check -
 fi
 
 PART="$MODEL_FILE.part"
-echo "Downloading the one Kilobyte brain (Qwen3 1.7B Q4_K_M, about 1.28 GB)..."
+echo "Downloading the one Kilobyte brain (custom Q4_K_M, about 0.94 GB)..."
 curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
     --continue-at - --output "$PART" "$MODEL_URL"
 echo "$EXPECTED  $PART" | sha256sum --check

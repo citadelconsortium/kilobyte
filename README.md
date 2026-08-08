@@ -83,7 +83,7 @@ In-TUI commands:
 
 `read_file`, `write_file`, `list_files`, `search_files`, `run_command`, `system_info`,
 `web_search`, `web_fetch`, `remember`, `recall`, `save_skill`, `list_skills`,
-`search_history`. MCP servers can add more.
+`search_history`, `reference` (offline cheat-sheet bank). MCP servers can add more.
 
 Results are compacted before reaching the model, so a large directory listing or command output
 cannot displace the conversation.
@@ -177,6 +177,12 @@ sudo install -m 0600 -o kilobyte -g kilobyte config/providers.example.json /etc/
 sudo nano /etc/kilobyte/providers.json   # add your key
 ```
 
+Escalated (cloud) models are given the **same tools** the local model has — terminal,
+files, web, memory, reference — so a frontier model works *through* the framework rather
+than guessing blind. `/model` lists the provider's models (free ones for OpenRouter) so you
+can switch without hunting for names; the active model, token usage and context show live
+in the stats bar and F2 panel.
+
 The rules are deliberate: local is always the default, escalation happens only for a
 message you prefixed with `/cloud` and lasts exactly that one message, there is no
 automatic fallback when the local model is slow or fails, the reply is labelled with the
@@ -213,10 +219,15 @@ current request and clears the queue.
 ## The brain
 
 **There is exactly one Kilobyte brain, trained once.** It is a single canonical
-`kilobyte.gguf` that the maintainer produces and distributes as a prebuilt, checksum-pinned
-file. **Installing Kilo never trains anything** — the installer only *downloads* that one
-brain and verifies its SHA-256. Every machine runs the same weights; nothing is generated
-per install.
+`kilobyte.gguf` — **Qwen2.5-1.5B fine-tuned for the Kilo persona and tool-call format,
+quantised to Q4_K_M** — published on GitHub Releases
+([`brain-1.0`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.0),
+sha256 `54df7f01…bcb3506`) and mirrored on Kaggle Models. **Installing Kilo never trains
+anything** — the installer only *downloads* that one brain and verifies its SHA-256.
+
+The brain gives Kilo its identity, reliable tool-call format, and offline grounding; a
+1.5B model's raw capability is bounded, so the framework (grounding, the orchestrator, the
+offline reference bank, and cloud escalation) is what makes it powerful.
 
 Once installed, a brain can still be upgraded deliberately. A newly built brain is a
 **candidate** and never overwrites the running one until it passes evaluation and is
