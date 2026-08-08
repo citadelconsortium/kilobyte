@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from . import net
+from . import net, reference
 from .config import Settings
 from .errors import SecurityError, ToolError
 from .mcp import MCPRegistry
@@ -175,6 +175,7 @@ class ToolRegistry:
         self.register(ToolDefinition("system_info", "Inspect operating system, CPU, memory, disk and uptime.", _object_schema({}), self._system_info))
         self.register(ToolDefinition("web_search", "Search the public web and return titles, URLs and snippets.", _object_schema({"query": string, "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, ["query"]), self._web_search))
         self.register(ToolDefinition("web_fetch", "Fetch a public HTTP(S) page as bounded text.", _object_schema({"url": string}, ["url"]), self._web_fetch))
+        self.register(ToolDefinition("reference", "Look up the offline reference bank — tool usage, coding, systems and security cheat-sheets. Works with no internet; use it to ground how-to before acting.", _object_schema({"query": string}, ["query"]), self._reference))
         self.register(ToolDefinition("remember", "Persist a useful user preference or stable fact.", _object_schema({"content": string, "importance": {"type": "number", "minimum": 0, "maximum": 1}}, ["content"]), self._remember))
         self.register(ToolDefinition("recall", "Search persistent long-term memory.", _object_schema({"query": string}, ["query"]), self._recall))
         self.register(ToolDefinition(
@@ -356,6 +357,15 @@ class ToolRegistry:
             body = re.sub(r"(?s)<[^>]+>", " ", body)
             body = re.sub(r"\s+", " ", html.unescape(body)).strip()
         return {"url": url, "content_type": content_type, "content": body[:200_000], "truncated": len(body) > 200_000}
+
+    async def _reference(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
+        del ctx
+        entries = reference.search(str(args["query"]))
+        return {
+            "query": args["query"],
+            "entries": entries,
+            "note": "offline reference bank" if entries else "no matching entry; use a tool or say you are not certain",
+        }
 
     async def _remember(self, args: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         fact_id = self.memory.remember(str(args["content"]), scope="global", importance=float(args.get("importance", 0.5)))

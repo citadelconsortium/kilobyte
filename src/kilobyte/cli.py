@@ -342,6 +342,9 @@ def main() -> None:
         raise SystemExit(telegram_command(args, settings))
     try:
         raise SystemExit(asyncio.run(async_main(args, settings)))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Quitting the TUI (Ctrl-Q/Ctrl-C) must exit cleanly, not dump a traceback.
+        raise SystemExit(0) from None
     except (FileNotFoundError, ConnectionRefusedError):
         print(f"{YELLOW}Kilobyte daemon is not running.{RESET} Try: sudo systemctl start kilobyte", file=sys.stderr)
         raise SystemExit(2) from None

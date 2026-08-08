@@ -184,14 +184,21 @@ class ProviderRegistry:
             raise ProviderError(f"unknown provider: {chosen}. Configured: {', '.join(sorted(available))}")
         return available[chosen]
 
-    async def stream(self, provider: Provider, messages: list[dict[str, Any]], max_tokens: int) -> AsyncIterator[dict[str, Any]]:
-        """Stream an escalated completion, in the same event shape the local runtime uses."""
+    async def stream(self, provider: Provider, messages: list[dict[str, Any]], max_tokens: int, tools: list[dict[str, Any]] | None = None) -> AsyncIterator[dict[str, Any]]:
+        """Stream an escalated completion, in the same event shape the local runtime uses.
+
+        Tools are forwarded so an escalated (cloud) model has the same terminal/file/web
+        tools the local model does — without them a cloud model is blind to the machine and
+        just guesses, which reads as 'confused, no terminal access'."""
         payload = {
             "model": provider.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
 
         def open_request():
             request = urllib.request.Request(

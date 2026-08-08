@@ -136,6 +136,7 @@ class KiloApp:
         self.cloud_active = False
         self.cloud_provider = ""
         self.private_mode = False   # route web tools through Tor
+        self.current_task = ""      # text of the request being worked on
         self.usage: dict[str, Any] = {}   # token usage from the last reply
         self._answered = False            # whether the current reply has started printing
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
@@ -218,7 +219,7 @@ class KiloApp:
             ("class:stat.k", "   ⇥ tokens "), ("class:stat", f"{self.tokens}"),
             ("class:stat.k", "   effort "), ("class:stat", f"{self.effort}"),
             ("class:stat.k", "   ⬡ "),
-            ("class:kilo", f"cloud·{self.cloud_provider}" if self.cloud_active else "kilo"),
+            ("class:kilo", self.model_name if self.model_name else ("cloud·" + self.cloud_provider if self.cloud_active else "kilo")),
         ]
         if self.agent_name:
             bar += [("class:stat.k", "   ◆ "), ("class:kilo", self.agent_name)]
@@ -227,6 +228,9 @@ class KiloApp:
             bar += [("class:stat.k", "   ⧉ queued "), ("class:stat", f"{qn}")]
         if self.private_mode:
             bar += [("class:stat.k", "   🛡 "), ("class:kilo", "private")]
+        if self.busy and self.current_task:
+            task = self.current_task if len(self.current_task) <= 32 else self.current_task[:31] + "…"
+            bar += [("class:stat.k", "   ▸ "), ("class:dim", task)]
         ctx = (self.status.get("profile") or {}).get("context_size")
         if ctx:
             used = (self.usage or {}).get("total_tokens")
@@ -292,16 +296,18 @@ class KiloApp:
         looked like 'some messages never responded'. Serialising fixes that."""
         while True:
             text, provider = await self._queue.get()
+            self.current_task = text
             try:
                 await self._ask(text, provider)
             except Exception as exc:  # noqa: BLE001
                 self._append(f"\n⚠ {exc}\n")
             finally:
+                self.current_task = ""
                 self._queue.task_done()
                 self.app.invalidate()
 
     def _enqueue(self, text: str, provider: str | None = None) -> None:
-        self._append(f"\n{_you(text)}\n\n")
+        self._append(f"\n\n── you {'─' * 50}\n{text}\n")
         ahead = (self._queue.qsize() if self._queue else 0) + (1 if self.busy else 0)
         if ahead > 0:
             self._append(f"⏳ queued — {ahead} task(s) ahead\n")
@@ -411,6 +417,7 @@ class KiloApp:
             self.cloud_active = not self.cloud_active
             where = f"cloud · {self.cloud_provider}" if self.cloud_active else "local · Kilo"
             self._append(f"\n— switched to {where} —\n")
+            self._spawn(self._refresh_brain_label())
             return True
         if text.startswith("/private"):
             arg = text[len("/private"):].strip().lower()
@@ -506,6 +513,7 @@ class KiloApp:
         self.cloud_provider = name
         self.cloud_active = True
         self._append(f"\n— routing to cloud · {name} (use /switch for local Kilo) —\n")
+        self._spawn(self._refresh_brain_label())
         if question:
             self._enqueue(question, provider=name)
 
@@ -562,6 +570,21 @@ class KiloApp:
             self._append("\n⚠ Tor is not reachable — private requests will be refused (fail-closed), "
                          "not sent unmasked. Start it: sudo systemctl start tor\n")
 
+    async def _refresh_brain_label(self) -> None:
+        """Keep the displayed model name in sync with the active brain: the local gguf stem,
+        or the cloud provider's current model."""
+        try:
+            if self.cloud_active and self.cloud_provider:
+                info = await self.client.request("provider_info")
+                model = info.get("model")
+                self.model_name = f"{info.get('default')}:{model}" if model else f"cloud·{self.cloud_provider}"
+            else:
+                st = await self.client.request("status")
+                self.model_name = Path(str(st.get("model", ""))).stem or self.model_name
+        except (ConnectionError, FileNotFoundError, OSError):
+            pass
+        self.app.invalidate()
+
     async def _model_cmd(self, arg: str) -> None:
         try:
             info = await self.client.request("provider_info")
@@ -582,6 +605,7 @@ class KiloApp:
             return
         if res.get("ok"):
             self._append(f"\n✓ {info['default']} model set to {res.get('model')}\n")
+            self._spawn(self._refresh_brain_label())
         else:
             self._append(f"\n⚠ {res.get('error', 'could not set model')}\n")
 
@@ -631,8 +655,8 @@ class KiloApp:
                     self.streaming = False
                 elif kind == "token":
                     if not self._answered:
-                        who = f"☁ {self.cloud_provider}" if self.cloud_active else "◆ kilo"
-                        self._append(f"\n  {who}\n  ")
+                        who = f"☁ {self.cloud_provider}" if self.cloud_active else "kilo"
+                        self._append(f"\n── {who} {'─' * max(2, 50 - len(who))}\n")
                         self._answered = True
                     self.streaming = True
                     self.tokens += 1
@@ -700,7 +724,10 @@ class KiloApp:
             if n % 25 == 0:  # ~ every 2.5s
                 try:
                     self.status = await self.client.request("status")
-                    self.model_name = Path(str(self.status.get("model", ""))).stem or self.model_name
+                    # Don't overwrite the cloud model label with the local model name while a
+                    # cloud provider is the active brain.
+                    if not self.cloud_active:
+                        self.model_name = Path(str(self.status.get("model", ""))).stem or self.model_name
                 except Exception:
                     pass
             # Always invalidate so the header dot and idle wave keep moving; the rate is

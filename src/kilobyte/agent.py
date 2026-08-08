@@ -203,7 +203,7 @@ class Agent:
             # does not close the inner chat_stream generator, leaking the open HTTP
             # request to llama-server and its held inference slot indefinitely.
             source = (
-                self.providers.stream(escalated, messages, max_tokens)
+                self.providers.stream(escalated, messages, max_tokens, tool_schemas)
                 if escalated is not None
                 else self.runtime.chat_stream(payload)
             )
