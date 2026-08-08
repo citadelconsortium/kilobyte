@@ -68,6 +68,14 @@ KNOWN_PROVIDERS: dict[str, dict[str, str]] = {
     "groq": {"label": "Groq", "base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
     "deepseek": {"label": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
     "together": {"label": "Together", "base_url": "https://api.together.xyz/v1", "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+    "mistral": {"label": "Mistral", "base_url": "https://api.mistral.ai/v1", "model": "mistral-large-latest"},
+    "xai": {"label": "xAI (Grok)", "base_url": "https://api.x.ai/v1", "model": "grok-2-latest"},
+    "gemini": {"label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.0-flash"},
+    "cerebras": {"label": "Cerebras", "base_url": "https://api.cerebras.ai/v1", "model": "llama-3.3-70b"},
+    "fireworks": {"label": "Fireworks", "base_url": "https://api.fireworks.ai/inference/v1", "model": "accounts/fireworks/models/llama-v3p3-70b-instruct"},
+    "perplexity": {"label": "Perplexity", "base_url": "https://api.perplexity.ai", "model": "sonar"},
+    "nebius": {"label": "Nebius", "base_url": "https://api.studio.nebius.ai/v1", "model": "meta-llama/Llama-3.3-70B-Instruct"},
+    "hyperbolic": {"label": "Hyperbolic", "base_url": "https://api.hyperbolic.xyz/v1", "model": "meta-llama/Llama-3.3-70B-Instruct"},
 }
 
 
