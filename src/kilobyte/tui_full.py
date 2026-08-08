@@ -309,7 +309,7 @@ class KiloApp:
                 self.app.invalidate()
 
     def _enqueue(self, text: str, provider: str | None = None) -> None:
-        self._append(f"\n\n── you {'─' * 50}\n{text}\n")
+        self._append(f"\n\u256d\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 you \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u256f\n{text}\n")
         ahead = (self._queue.qsize() if self._queue else 0) + (1 if self.busy else 0)
         if ahead > 0:
             self._append(f"⏳ queued — {ahead} task(s) ahead\n")
@@ -723,8 +723,9 @@ class KiloApp:
                     self.streaming = False
                 elif kind == "token":
                     if not self._answered:
-                        who = f"☁ {self.cloud_provider}" if self.cloud_active else "kilo"
-                        self._append(f"\n── {who} {'─' * max(2, 50 - len(who))}\n")
+                        who = f"\u2601 {self.cloud_provider}" if self.cloud_active else "kilo"
+                        bar = "\u2500" * (len(who) + 2)
+                        self._append(f"\n\u256d{bar}\u256e\n\u2502 {who} \u2502\n\u2570{bar}\u256f\n")
                         self._answered = True
                     self.streaming = True
                     self.tokens += 1
