@@ -108,7 +108,14 @@ class RPCServer:
                     await self._send(writer, {"type": "permission", "id": permission_id, "capability": capability, "detail": detail, "risk": risk.value})
                     raw_answer = await asyncio.wait_for(reader.readline(), timeout=300)
                     answer = json.loads(raw_answer)
-                    return answer.get("type") == "permission_response" and answer.get("id") == permission_id and bool(answer.get("allow"))
+                    if answer.get("type") != "permission_response" or answer.get("id") != permission_id:
+                        return False
+                    allow = bool(answer.get("allow"))
+                    # "yes for this session": grant this capability for the daemon's lifetime
+                    # (not persisted to disk), so the same kind of action stops re-prompting.
+                    if allow and answer.get("remember"):
+                        self.agent.tools.permissions.rules[capability] = "allow"
+                    return allow
                 run = self.agent.run(
                     str(request.get("text", "")),
                     request.get("session_id"),

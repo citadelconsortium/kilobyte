@@ -138,6 +138,7 @@ class KiloApp:
         self.private_mode = False   # route web tools through Tor
         self.current_task = ""      # text of the request being worked on
         self._model_options: list[str] = []
+        self._perm_future: asyncio.Future | None = None   # resolved by 1/2/3 approval input
         self.usage: dict[str, Any] = {}   # token usage from the last reply
         self._answered = False            # whether the current reply has started printing
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
@@ -330,6 +331,10 @@ class KiloApp:
         # An awaited answer (cloud provider pick or API key) is consumed here rather than
         # being sent to the model. Returning False also wipes the key from the input line.
         if self._pending is not None:
+            if self._pending.get("kind") == "permission" and self._perm_future and not self._perm_future.done():
+                self._perm_future.set_result(text)
+                self._pending = None
+                return False
             self._spawn(self._resume_pending(text))
             return False
         if self._handle_command(text):
@@ -720,6 +725,10 @@ class KiloApp:
                     self.phase = "interpreting"
                 elif kind == "error":
                     self._append(f"\n⚠ {event.get('error')}\n")
+                elif kind == "permission":
+                    allow, remember = await self._ask_permission(event)
+                    writer.write((json.dumps({"type": "permission_response", "id": event.get("id"), "allow": allow, "remember": remember}) + "\n").encode())
+                    await writer.drain()
                 elif kind == "done":
                     self.usage = event.get("usage") or {}
                     break
@@ -735,6 +744,27 @@ class KiloApp:
             self.phase = ""
             self._append("\n")
             self.app.invalidate()
+
+    async def _ask_permission(self, event: dict) -> tuple[bool, bool]:
+        """Ask the owner to approve a risky action. Type 1 (yes), 2 (yes, all this
+        session) or 3 (no). Times out to a denial so a walked-away prompt fails safe."""
+        risk = str(event.get("risk", "?"))
+        self._append(
+            f"\n\u26a0 approval needed \u2014 {event.get('capability')} [{risk}]\n"
+            f"   {event.get('detail', '')}\n"
+            f"   1) yes   2) yes, all this session   3) no\n   \u203a "
+        )
+        self._perm_future = asyncio.get_event_loop().create_future()
+        self._pending = {"kind": "permission"}
+        self.app.invalidate()
+        try:
+            ans = (await asyncio.wait_for(self._perm_future, timeout=280)).strip().lower()
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            ans = "3"
+        allow = ans in {"1", "2", "y", "yes"}
+        remember = ans == "2"
+        self._append(f"   \u2192 {'approved' if allow else 'denied'}{' (session)' if remember else ''}\n")
+        return allow, remember
 
     def _bindings(self) -> KeyBindings:
         kb = KeyBindings()
