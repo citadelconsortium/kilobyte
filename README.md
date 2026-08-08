@@ -1,5 +1,14 @@
 <p align="center"><img src="assets/kilo-mascot.svg" width="132" alt="Kilo, the Kilobyte mascot"></p>
 
+<pre align="center">
+ ██╗  ██╗██╗██╗      ██████╗ ██████╗ ██╗   ██╗████████╗███████╗
+ ██║ ██╔╝██║██║     ██╔═══██╗██╔══██╗╚██╗ ██╔╝╚══██╔══╝██╔════╝
+ █████╔╝ ██║██║     ██║   ██║██████╔╝ ╚████╔╝    ██║   █████╗
+ ██╔═██╗ ██║██║     ██║   ██║██╔══██╗  ╚██╔╝     ██║   ██╔══╝
+ ██║  ██╗██║███████╗╚██████╔╝██████╔╝   ██║      ██║   ███████╗
+ ╚═╝  ╚═╝╚═╝╚══════╝ ╚═════╝ ╚═════╝    ╚═╝      ╚═╝   ╚══════╝
+</pre>
+
 <h1 align="center">Kilobyte</h1>
 <p align="center"><b>The local-first AI agent that actually does the work — not another chat wrapper.</b></p>
 
