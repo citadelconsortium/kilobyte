@@ -830,8 +830,6 @@ class KiloApp:
                 elif kind == "token":
                     if not self._answered:
                         label = f"\u2601 {self.cloud_provider}" if self.cloud_active else "Kilo"
-                        if self.agent_name:
-                            label += f" \u00b7 {self.agent_name}"
                         self._append("\n" + self._rule(label) + "\n")
                         self._answered = True
                         self._line_buf = ""
