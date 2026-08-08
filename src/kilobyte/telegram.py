@@ -263,6 +263,7 @@ class TelegramBridge:
         command = command.lstrip("/").split("@")[0].split()[0].lower() if command.strip() else ""
         if command in {"start", "help"}:
             lines = [
+                "<pre>▄█ KILO █▄  — local-first terminal AI</pre>",
                 "🤖 <b>Kilo</b> — your local AI",
                 "<i>runs entirely on your own machine · nothing goes to the cloud</i>",
                 "",
