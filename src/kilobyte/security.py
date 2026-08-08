@@ -55,6 +55,13 @@ class CommandPolicy:
     DESTRUCTIVE = {
         "rm", "rmdir", "shred", "wipefs", "dd", "mkfs", "fdisk", "parted",
         "shutdown", "reboot", "poweroff", "kill", "pkill", "killall",
+        # disks / filesystems
+        "cfdisk", "sgdisk", "sfdisk", "gdisk", "mkswap", "swapoff", "blkdiscard",
+        "fsck", "truncate", "hdparm",
+        # accounts / persistence / credentials
+        "userdel", "groupdel", "crontab", "passwd", "chpasswd",
+        # recursive perms / ownership can wreck a tree
+        "chown", "chmod", "chattr",
     }
     ELEVATED = {"sudo", "doas", "su", "systemctl", "mount", "umount", "pacman"}
     SHELL_TOKENS = {"|", "||", "&&", ";", ">", ">>", "<", "2>", "&"}
@@ -74,7 +81,7 @@ class CommandPolicy:
         executable = Path(argv[0]).name
         if remote and executable in self.NEVER_REMOTE:
             raise PermissionDenied(f"{executable} is blocked over Telegram")
-        if executable in self.DESTRUCTIVE:
+        if executable in self.DESTRUCTIVE or executable.split(".")[0] in {"mkfs", "fsck"}:
             risk, reason = Risk.DESTRUCTIVE, f"{executable} can destroy or interrupt data"
         elif executable in self.ELEVATED:
             risk, reason = Risk.ELEVATED, f"{executable} changes privileged system state"
