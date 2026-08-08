@@ -261,20 +261,23 @@ class TelegramBridge:
     async def _command(self, token: str, chat_id: int, command: str) -> bool:
         """Handle a slash command or menu button. Returns True when handled."""
         command = command.lstrip("/").split("@")[0].split()[0].lower() if command.strip() else ""
-        if command in {"start", "help"}:
+        if command == "start":
+            # Minimal welcome — details live in /help.
             lines = [
-                "<pre>▄█ KILO █▄  — local-first terminal AI</pre>",
-                "🤖 <b>Kilo</b> — your local AI",
-                "<i>runs entirely on your own machine · nothing goes to the cloud</i>",
-                "",
-                "Just send a message and the same brain the terminal uses answers it.",
-                "",
+                "🤖 <b>Kilo</b> — ready, Sir.",
+                "Send a message; the same local brain the terminal uses answers.",
+                "🔒 <i>read-only here.</i>  ·  /help for commands",
+            ]
+            await self.send(token, chat_id, "\n".join(lines), self.MENU)
+            return True
+        if command == "help":
+            lines = [
                 "<b>Commands</b>",
                 *[f"• <code>/{name}</code> — {description}" for name, description in self.COMMANDS],
                 "",
-                "🔒 <b>Kilo is read-only here.</b> Over Telegram it can look things up, search",
-                "the web and remember facts — but never runs commands, writes files or changes",
-                "the system. Use the terminal for that.",
+                "🔒 <b>Kilo is read-only over Telegram</b> — it looks things up, searches the web",
+                "and remembers facts, but never runs commands, writes files or changes the",
+                "system, and has no cloud access here. Use the terminal for that.",
             ]
             await self.send(token, chat_id, "\n".join(lines), self.MENU)
             return True
