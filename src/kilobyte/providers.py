@@ -139,6 +139,32 @@ class ProviderRegistry:
             pass
         return self.resolve(name)
 
+    def set_model(self, name: str, model: str) -> str:
+        """Change the model for a configured provider without needing the key again."""
+        import os as _os
+        name = name.strip().lower()
+        raw = self._raw()
+        provs = raw.get("providers") or {}
+        if name not in provs:
+            raise ProviderError(f"provider {name} is not configured")
+        provs[name]["model"] = model.strip()
+        raw["providers"] = provs
+        self.config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        try:
+            _os.chmod(self.config_path, 0o600)
+        except OSError:
+            pass
+        return model.strip()
+
+    def info(self) -> dict[str, Any]:
+        """Which provider is default and what model it currently uses."""
+        name = self.default_name()
+        model = ""
+        if name:
+            raw = self._raw()
+            model = str((raw.get("providers") or {}).get(name, {}).get("model", ""))
+        return {"default": name, "model": model, "configured": sorted(self.providers())}
+
     def default_name(self) -> str | None:
         raw = self._raw()
         available = self.providers()

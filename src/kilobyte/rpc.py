@@ -71,6 +71,14 @@ class RPCServer:
             elif command == "tor_status":
                 from . import net
                 await self._send(writer, {"type": "result", "data": {"available": net.tor_available()}})
+            elif command == "provider_info":
+                await self._send(writer, {"type": "result", "data": self.agent.providers.info()})
+            elif command == "set_model":
+                try:
+                    m = self.agent.providers.set_model(str(request.get("name", "")), str(request.get("model", "")))
+                    await self._send(writer, {"type": "result", "data": {"ok": True, "model": m}})
+                except Exception as exc:
+                    await self._send(writer, {"type": "result", "data": {"ok": False, "error": str(exc)}})
             elif command == "providers_catalog":
                 from .providers import KNOWN_PROVIDERS
                 configured = self.agent.providers.providers()

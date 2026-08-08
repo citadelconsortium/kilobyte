@@ -27,10 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer, HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
@@ -80,6 +82,34 @@ STYLE = Style.from_dict({
 })
 
 
+_COMMANDS = [
+    ("/effort ", "high | medium | low — reply depth vs speed"),
+    ("/agent ", "force a specialist: orchestrator research coding security systems private"),
+    ("/chats", "list past sessions to resume"),
+    ("/cloud ", "set up or use a cloud model (provider picker)"),
+    ("/switch", "flip between cloud and local Kilo (Kilo default)"),
+    ("/model ", "change the cloud model"),
+    ("/private ", "on | off | rotate — mask web through Tor"),
+    ("/cancel", "stop the running request and clear the queue"),
+    ("/new", "start a fresh session"),
+    ("/clear", "clear the screen"),
+    ("/help", "list commands"),
+    ("/quit", "exit Kilo"),
+]
+
+
+class _SlashCompleter(Completer):
+    """Pops up a menu of / commands as soon as the line starts with a slash."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for cmd, desc in _COMMANDS:
+            if cmd.startswith(text) or cmd.strip() == text.strip():
+                yield Completion(cmd, start_position=-len(text), display=cmd.strip(), display_meta=desc)
+
+
 class KiloApp:
     def __init__(self, client: RPCClient):
         self.client = client
@@ -106,6 +136,8 @@ class KiloApp:
         self.cloud_active = False
         self.cloud_provider = ""
         self.private_mode = False   # route web tools through Tor
+        self.usage: dict[str, Any] = {}   # token usage from the last reply
+        self._answered = False            # whether the current reply has started printing
         self._pending: dict[str, Any] | None = None   # awaited inline input (selector / key)
         self._catalog: dict[str, Any] = {}
         self._cloud_options: list[tuple[str, dict[str, Any]]] = []
@@ -123,6 +155,7 @@ class KiloApp:
         self.input = TextArea(
             height=1, multiline=False, wrap_lines=False, prompt="  › ",
             style="class:prompt", accept_handler=self._accept,
+            completer=_SlashCompleter(), complete_while_typing=True,
         )
         self._build_layout()
 
@@ -194,6 +227,11 @@ class KiloApp:
             bar += [("class:stat.k", "   ⧉ queued "), ("class:stat", f"{qn}")]
         if self.private_mode:
             bar += [("class:stat.k", "   🛡 "), ("class:kilo", "private")]
+        ctx = (self.status.get("profile") or {}).get("context_size")
+        if ctx:
+            used = (self.usage or {}).get("total_tokens")
+            bar += [("class:stat.k", "   ▤ ctx "),
+                    ("class:stat", f"{used}/{ctx}" if used else f"{ctx}")]
         return bar
 
     def _panel_text(self):
@@ -209,7 +247,10 @@ class KiloApp:
             ("class:panel.key", " gpu      "), ("", f"{prof.get('gpu_layers','?')} layers\n"),
             ("class:panel.key", " memory   "), ("", f"{prof.get('available_mb','?')} MiB\n\n"),
             ("class:panel.title", " THIS TURN\n\n"),
-            ("class:panel.key", " tokens   "), ("", f"{self.tokens}\n"),
+            ("class:panel.key", " reply tok"), ("", f" {self.tokens}\n"),
+            ("class:panel.key", " prompt   "), ("", f"{(self.usage or {}).get('prompt_tokens','-')}\n"),
+            ("class:panel.key", " total    "), ("", f"{(self.usage or {}).get('total_tokens','-')}\n"),
+            ("class:panel.key", " ctx limit"), ("", f" {prof.get('context_size','?')}\n"),
             ("class:panel.key", " tools    "), ("", f"{self.tools_used}\n\n"),
             ("class:panel.title", " MEMORY\n\n"),
             ("class:panel.key", " sessions "), ("", f"{mem.get('sessions','?')}\n"),
@@ -232,6 +273,10 @@ class KiloApp:
             Window(FormattedTextControl(self._stats_bar), height=1),
             Window(height=1, char="─", style="class:sep"),
             self.input,
+        ])
+        root = FloatContainer(root, floats=[
+            Float(xcursor=True, ycursor=True,
+                  content=CompletionsMenu(max_height=8, scroll_offset=1)),
         ])
         self.layout = Layout(root, focused_element=self.input)
 
@@ -306,6 +351,7 @@ class KiloApp:
                 "  /cloud [question]         set up / use a cloud model (key selector)\n"
                 "  /switch                   flip between cloud and local Kilo (Kilo default)\n"
                 "  /private [on|off|rotate]  mask web via Tor — hide IP, rotate exit\n"
+                "  /model [name]             show or change the cloud model\n"
                 "  /cancel                   stop the running request and clear the queue\n"
                 "  /new · /clear · /quit\n"
                 "keys: F2 runtime panel · Ctrl-C cancel · Ctrl-Q quit\n"
@@ -381,6 +427,9 @@ class KiloApp:
                              "   Your IP is hidden; if Tor is down the request is refused, never sent\n"
                              "   unmasked. Exit with /private off · new IP with /private rotate\n")
                 self._spawn(self._private_status())
+            return True
+        if text.startswith("/model"):
+            self._spawn(self._model_cmd(text[len("/model"):].strip()))
             return True
         if text == "/cancel":
             cancelled = False
@@ -513,6 +562,29 @@ class KiloApp:
             self._append("\n⚠ Tor is not reachable — private requests will be refused (fail-closed), "
                          "not sent unmasked. Start it: sudo systemctl start tor\n")
 
+    async def _model_cmd(self, arg: str) -> None:
+        try:
+            info = await self.client.request("provider_info")
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ {exc}\n")
+            return
+        if not info.get("default"):
+            self._append("\n— no cloud provider configured; run /cloud first —\n")
+            return
+        if not arg:
+            self._append(f"\n☁ {info['default']} · model: {info.get('model') or '(unset)'}\n"
+                         f"   change it with /model <model-name>\n")
+            return
+        try:
+            res = await self.client.request("set_model", name=info["default"], model=arg)
+        except (ConnectionError, FileNotFoundError, OSError) as exc:
+            self._append(f"\n⚠ {exc}\n")
+            return
+        if res.get("ok"):
+            self._append(f"\n✓ {info['default']} model set to {res.get('model')}\n")
+        else:
+            self._append(f"\n⚠ {res.get('error', 'could not set model')}\n")
+
     async def _ask(self, text: str, provider: str | None = None) -> None:
         # A plain message follows the active brain: local Kilo by default, the last cloud
         # provider after /switch.
@@ -521,6 +593,8 @@ class KiloApp:
         self.busy = True
         self._active = asyncio.current_task()
         self.tokens = self.tools_used = 0
+        self._answered = False
+        self.usage = {}
         self.streaming = False
         self.agent_name = ""
         self.phase = "thinking"
@@ -556,6 +630,10 @@ class KiloApp:
                     self.phase = "thinking"
                     self.streaming = False
                 elif kind == "token":
+                    if not self._answered:
+                        who = f"☁ {self.cloud_provider}" if self.cloud_active else "◆ kilo"
+                        self._append(f"\n  {who}\n  ")
+                        self._answered = True
                     self.streaming = True
                     self.tokens += 1
                     self._append(event.get("text", ""))
@@ -573,6 +651,7 @@ class KiloApp:
                 elif kind == "error":
                     self._append(f"\n⚠ {event.get('error')}\n")
                 elif kind == "done":
+                    self.usage = event.get("usage") or {}
                     break
                 self.app.invalidate()
         except asyncio.CancelledError:
