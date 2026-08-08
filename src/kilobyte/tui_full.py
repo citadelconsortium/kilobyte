@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import ConditionalContainer, Float, FloatContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.menus import CompletionsMenu
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import TextArea
@@ -78,6 +80,13 @@ STYLE = Style.from_dict({
     "panel.title": "#af87ff bold",
     "panel.key": "#8a8a8a",
     "output": "bg:#0a0a0a",
+    "box": "#3fa869",
+    "box.you": "#5fafff bold",
+    "box.kilo": "#5fd787 bold",
+    "diff.add": "#5fd787",
+    "diff.del": "#ff5f5f",
+    "code": "#87d7ff",
+    "toolline": "#8a8a8a",
     "prompt": "#5fafff bold",
 })
 
@@ -86,6 +95,8 @@ _COMMANDS = [
     ("/effort ", "high | medium | low — reply depth vs speed"),
     ("/agent ", "force a specialist: orchestrator research coding security systems private"),
     ("/chats", "list past sessions to resume"),
+    ("/kilochats", "browse past chats; type a number to continue one"),
+    ("/cloud key", "add or change a provider API key"),
     ("/cloud ", "set up or use a cloud model (provider picker)"),
     ("/switch", "flip between cloud and local Kilo (Kilo default)"),
     ("/model ", "change the cloud model"),
@@ -96,6 +107,41 @@ _COMMANDS = [
     ("/help", "list commands"),
     ("/quit", "exit Kilo"),
 ]
+
+
+class _ChatLexer(Lexer):
+    """Colours the conversation: turn borders, +/- diff lines, destructive warnings,
+    tool lines, and code inside ``` fences."""
+
+    def lex_document(self, document):
+        lines = document.lines
+
+        def get_line(lineno):
+            line = lines[lineno]
+            stripped = line.strip()
+            if stripped and set(stripped) <= set("\u2500") or line.startswith("\u2500\u2500\u2500"):
+                cls = "class:box.you" if " Sir " in line or line.startswith("\u2500\u2500\u2500Sir") else (
+                    "class:box.kilo" if ("Kilo" in line or "\u2601" in line) else "class:box")
+                return [(cls, line)]
+            body = line[2:] if line.startswith("\u2502 ") else line
+            b = body.lstrip()
+            fences = 0
+            for i in range(lineno):
+                if lines[i].lstrip("\u2502 ").startswith("```"):
+                    fences += 1
+            if "\u26a0" in line or "destructive" in body.lower():
+                return [("class:diff.del", line)]
+            if b.startswith("+") and not b.startswith("+++"):
+                return [("class:diff.add", line)]
+            if b.startswith("-") and not b.startswith("---"):
+                return [("class:diff.del", line)]
+            if b.startswith(("\u25c8", "\u2713", "!")):
+                return [("class:toolline", line)]
+            if fences % 2 == 1 or b.startswith("```"):
+                return [("class:code", line)]
+            return [("", line)]
+
+        return get_line
 
 
 class _SlashCompleter(Completer):
@@ -153,7 +199,7 @@ class KiloApp:
 
         self.output = TextArea(
             text="", read_only=True, scrollbar=True, wrap_lines=True,
-            focusable=False, style="class:output",
+            focusable=False, style="class:output", lexer=_ChatLexer(),
         )
         self.input = TextArea(
             height=1, multiline=False, wrap_lines=False, prompt="  › ",
@@ -161,6 +207,22 @@ class KiloApp:
             completer=_SlashCompleter(), complete_while_typing=True,
         )
         self._build_layout()
+
+    def _cw(self) -> int:
+        try:
+            cols = shutil.get_terminal_size((80, 24)).columns
+        except Exception:
+            cols = 80
+        if self.show_panel:
+            cols -= 31
+        return max(20, cols - 2)
+
+    def _rule(self, label: str = "") -> str:
+        w = self._cw()
+        if label:
+            head = "\u2500\u2500\u2500" + label + " "
+            return head + "\u2500" * max(0, w - len(head))
+        return "\u2500" * w
 
     # ---- layout -------------------------------------------------------------
 
@@ -309,7 +371,8 @@ class KiloApp:
                 self.app.invalidate()
 
     def _enqueue(self, text: str, provider: str | None = None) -> None:
-        self._append(f"\n\u256d\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 you \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u256f\n{text}\n")
+        body = "\n".join("\u2502 " + ln for ln in text.split("\n"))
+        self._append(f"\n{self._rule('Sir')}\n{body}\n{self._rule()}\n")
         ahead = (self._queue.qsize() if self._queue else 0) + (1 if self.busy else 0)
         if ahead > 0:
             self._append(f"⏳ queued — {ahead} task(s) ahead\n")
@@ -718,7 +781,6 @@ class KiloApp:
                         self._append(f"☁ escalated to {event.get('label')}\n")
                 elif kind == "agent":
                     self.agent_name = event.get("profile", "")
-                    self._append(f"◆ {event.get('profile')} agent — {event.get('hint','')}\n")
                 elif kind == "warming":
                     self.phase = "warming cache (one-off)"
                     self._append("⏳ warming the prompt cache — one-off after a change\n")
@@ -727,23 +789,24 @@ class KiloApp:
                     self.streaming = False
                 elif kind == "token":
                     if not self._answered:
-                        who = f"\u2601 {self.cloud_provider}" if self.cloud_active else "kilo"
-                        bar = "\u2500" * (len(who) + 2)
-                        self._append(f"\n\u256d{bar}\u256e\n\u2502 {who} \u2502\n\u2570{bar}\u256f\n")
+                        label = f"\u2601 {self.cloud_provider}" if self.cloud_active else "Kilo"
+                        if self.agent_name:
+                            label += f" \u00b7 {self.agent_name}"
+                        self._append(f"\n{self._rule(label)}\n\u2502 ")
                         self._answered = True
                     self.streaming = True
                     self.tokens += 1
-                    self._append(event.get("text", ""))
+                    self._append(event.get("text", "").replace("\n", "\n\u2502 "))
                 elif kind == "tool_start":
                     self.tools_used += 1
                     self.phase = f"running {event['name']}"
                     self.streaming = False
                     args = event.get("arguments") or {}
                     detail = ", ".join(f"{k}={str(v)[:32]}" for k, v in list(args.items())[:2])
-                    self._append(f"\n◈ {event['name']} {detail}\n")
+                    self._append(f"\n\u2502 \u25c8 {event['name']} {detail}\n\u2502 ")
                 elif kind == "tool_end":
                     ok = "✓" if event.get("ok") else "!"
-                    self._append(f"  {ok} {event.get('name')} · {str(event.get('summary',''))[:90]}\n")
+                    self._append(f"{ok} {event.get('name')} \u00b7 {str(event.get('summary',''))[:90]}\n\u2502 ")
                     self.phase = "interpreting"
                 elif kind == "error":
                     self._append(f"\n⚠ {event.get('error')}\n")
@@ -752,6 +815,8 @@ class KiloApp:
                     writer.write((json.dumps({"type": "permission_response", "id": event.get("id"), "allow": allow, "remember": remember}) + "\n").encode())
                     await writer.drain()
                 elif kind == "done":
+                    if self._answered:
+                        self._append(f"\n{self._rule()}\n")
                     self.usage = event.get("usage") or {}
                     break
                 self.app.invalidate()
