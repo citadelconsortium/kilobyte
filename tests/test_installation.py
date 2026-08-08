@@ -39,7 +39,11 @@ class InstallationTests(unittest.TestCase):
         self.assertIn("s/^User=.*/User=$KILO_USER/", install)
         self.assertIn("s/^Group=.*/Group=$KILO_GROUP/", install)
 
+    def test_online_installer_downloads_the_pinned_brain(self):
+        script = (Path(__file__).parents[1] / "scripts" / "install-online.sh").read_text()
+        self.assertIn("scripts/install-model.sh", script)
+        self.assertIn("scripts/install.sh", script)
+
 
 if __name__ == "__main__":
     unittest.main()
-

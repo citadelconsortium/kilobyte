@@ -1,0 +1,4 @@
+The canonical merged brain was converted and quantised to GGUF Q4_K_M.
+Release artifact: training/gguf/kilobyte.gguf
+SHA-256: 6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7
+GitHub Release: brain-1.1

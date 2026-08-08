@@ -245,8 +245,8 @@ current request and clears the queue.
 **There is exactly one Kilobyte brain, trained once.** It is a single canonical
 `kilobyte.gguf` — **Qwen2.5-1.5B fine-tuned for the Kilo persona and tool-call format,
 quantised to Q4_K_M** — published on GitHub Releases
-([`brain-1.0`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.0),
-sha256 `54df7f01…bcb3506`) and mirrored on Kaggle Models. **Installing Kilo never trains
+([`brain-1.1`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.1),
+sha256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`) and mirrored on Kaggle Models. **Installing Kilo never trains
 anything** — the installer only *downloads* that one brain and verifies its SHA-256.
 
 The brain gives Kilo its identity, reliable tool-call format, and offline grounding; a

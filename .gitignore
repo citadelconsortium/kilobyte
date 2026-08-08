@@ -14,4 +14,8 @@ training/data/
 training/output/
 kaggle.json
 *.gguf
+# Conversion workspaces and logs are local maintainer artifacts; publish only
+# the small manifest/README alongside the release asset.
+training/gguf/llama.cpp/
+training/gguf/*.log
 .venv/

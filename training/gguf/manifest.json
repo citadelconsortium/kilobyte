@@ -1,0 +1,11 @@
+{
+  "artifact": "kilobyte.gguf",
+  "release": "brain-1.1",
+  "sha256": "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7",
+  "size_bytes": 986047936,
+  "format": "GGUF v3",
+  "architecture": "qwen2",
+  "base_model": "unsloth/Qwen2.5-1.5B-Instruct",
+  "quantization": "Q4_K_M",
+  "status": "verified-converted-release-candidate"
+}
