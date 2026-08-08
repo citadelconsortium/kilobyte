@@ -410,7 +410,7 @@ class KiloApp:
             rest = text[len("/cloud"):].strip()
             # Re-run the provider picker to add or change an API key at any time.
             if rest.lower() in ("add", "key", "keys", "change", "new", "setup"):
-                self._spawn(self._cloud_setup())
+                self._spawn(self._cloud_setup(force_key=True))
                 return True
             # No provider yet: run the pick-and-key setup, carrying any question along.
             if not self.cloud_provider:
@@ -514,7 +514,7 @@ class KiloApp:
             self._append(f"\n{_you(m['content']) if m['role']=='user' else m['content']}\n")
         self._append("\n— continue below —\n")
 
-    async def _cloud_setup(self, pending_question: str | None = None) -> None:
+    async def _cloud_setup(self, pending_question: str | None = None, force_key: bool = False) -> None:
         """Show the provider catalog and await a pick. Users only ever supply an API key:
         the base URL and default model come from the catalog."""
         try:
@@ -531,7 +531,7 @@ class KiloApp:
             lines.append(f"  {i:>2}. {meta['label']:<12} {meta.get('model','')}{mark}")
         lines.append("  (type the number or name · blank line cancels)")
         self._append("\n".join(lines) + "\n")
-        self._pending = {"kind": "cloud_pick", "question": pending_question}
+        self._pending = {"kind": "cloud_pick", "question": pending_question, "force_key": force_key}
 
     def _run_cloud(self, name: str, question: str | None) -> None:
         """Activate a configured provider and, if a question was queued, send it now."""
@@ -573,7 +573,7 @@ class KiloApp:
             if not name:
                 self._append("\n— cancelled cloud setup —\n")
                 return
-            if name in set(self._catalog.get("configured", [])):
+            if name in set(self._catalog.get("configured", [])) and not pending.get("force_key"):
                 self._run_cloud(name, pending.get("question"))
                 return
             self._append(f"\n☁ paste your {name} API key and press Enter:\n")
