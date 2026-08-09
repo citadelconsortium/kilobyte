@@ -41,6 +41,8 @@ include a project user-agent to avoid edge-signature blocking, and retired
 CLI. `/commands` and `/help` list controls. `/botkey` securely updates the
 Telegram token through the daemon RPC. Telegram progress edits every three
 seconds and includes a bounded live token preview.
+The live stats bar intentionally omits the user's request text so status indicators stay
+compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
 
 ## Install / release
 
