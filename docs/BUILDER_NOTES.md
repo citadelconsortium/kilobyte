@@ -27,6 +27,12 @@ private. Built-in tools cover files, shell, web search/fetch, memory, skills,
 references, system inspection, and MCP. The security profile is operator-targeted
 and must retain the permission boundary; do not weaken it to claim “hacking power.”
 
+Cloud providers are explicit-only and HTTPS-only. The catalog includes Hugging Face
+Inference Providers (`https://router.huggingface.co/v1`) and account-scoped Cloudflare
+Workers AI; `/model` fetches the selected provider's live model catalog. GitHub Models
+was retired in July 2026 and is intentionally not advertised. Hermes Agent is a client,
+not a separate inference endpoint.
+
 ## UI / controls
 
 `kilo` launches the bordered prompt-toolkit TUI; `kilo chat` is the streaming
