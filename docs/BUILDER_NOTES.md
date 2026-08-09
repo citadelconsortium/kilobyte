@@ -31,7 +31,9 @@ Cloud providers are explicit-only and HTTPS-only. The catalog includes Hugging F
 Inference Providers (`https://router.huggingface.co/v1`) and account-scoped Cloudflare
 Workers AI; `/model` fetches the selected provider's live model catalog. GitHub Models
 was retired in July 2026 and is intentionally not advertised. Hermes Agent is a client,
-not a separate inference endpoint.
+not a separate inference endpoint. Groq uses `https://api.groq.com/openai/v1`; requests
+include a project user-agent to avoid edge-signature blocking, and retired
+`llama-3.3-70b-versatile` configs migrate to `llama-3.1-8b-instant` on read.
 
 ## UI / controls
 
