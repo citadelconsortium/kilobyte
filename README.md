@@ -299,7 +299,7 @@ The bridge picks the file up within 30 seconds; no restart needed. Messages from
 list are ignored and logged.
 
 The command menu and autocomplete are published through Telegram's `setMyCommands` API. It includes
-`/start`, `/status`, `/new`, `/local`, `/cloud`, `/switch`, `/models`, `/model`, `/agent`, `/id`,
+`/start`, `/status`, `/cancel`, `/new`, `/local`, `/cloud`, `/switch`, `/models`, `/model`, `/agent`, `/id`,
 and `/help`, with matching inline buttons. `/new` rotates the real per-chat session; `/cloud`
 selects a configured provider until `/local` switches back. While Kilo works it keeps a typing
 indicator alive, rapidly animates a progress card, and maintains a separate redacted live-work
@@ -309,6 +309,7 @@ time, and tools used. Provider tool markup is intercepted and dispatched as a re
 call rather than displayed as code; excess blank space is collapsed. Context follows the active
 route instead of showing the local 8192-token window for a cloud model. Errors come back as a
 message — never silence.
+`/cancel` (and the Stop button) cancels only that chat's active and queued tasks.
 
 Telegram talks to the same persistent brain as the terminal but under a read-only policy: no
 terminal, file writes, privileges, services, packages, or process control. Cloud routing changes
