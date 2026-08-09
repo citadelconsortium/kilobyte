@@ -90,8 +90,8 @@ showing the current action with live numeric counters (runtime, tools used, toke
 input box at the bottom. **F2** toggles a runtime panel; **Ctrl-C** cancels the running
 generation without leaving; **Ctrl-Q** quits. On a terminal without `prompt_toolkit` it falls
 back to a streaming line-based UI automatically.
-Agent selection, active tools, live work, and the final response stay inside one continuous
-**Kilo** box. Reasoning pauses add no rows, and provider whitespace is collapsed.
+The full TUI uses the exact v1.13.0 output: the original agent row, `◈` tool activity,
+result rows, faint divider, and final response all remain inside one continuous **Kilo** box.
 
 In-TUI commands:
 
