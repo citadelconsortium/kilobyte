@@ -17,7 +17,7 @@
 ### Why Kilobyte beats the rest
 - **It acts, it doesn’t just talk** — real tools (shell, files, web), and it works *until the task is done*, not until a step counter runs out.
 - **Private by default** — your brain runs locally; nothing leaves the box unless you send it to /cloud on purpose.
-- **Powerful on demand** — /cloud escalation hands any of 17 cloud providers your machine + your tools.
+- **Powerful on demand** — /cloud escalation hands any of 19 configured cloud providers your machine + your tools.
 - **Grounded & honest** — an orchestrator commissions specialist agents (coding, security, research, systems, private) over an offline reference bank.
 - **Production-ready** — one-line installer, checksum-verified brains with rollback, 100+ tests, systemd, Telegram.
 
@@ -203,7 +203,8 @@ sudo nano /etc/kilobyte/providers.json   # add your key
 
 Escalated (cloud) models are given the **same tools** the local model has — terminal,
 files, web, memory, reference — so a frontier model works *through* the framework rather
-than guessing blind. `/model` lists the provider's models (free ones for OpenRouter) so you
+than guessing blind. `/model` fetches the configured provider's live model catalogue (free
+models are prioritised for OpenRouter) so you
 can switch without hunting for names; the active model, token usage and context show live
 in the stats bar and F2 panel.
 
