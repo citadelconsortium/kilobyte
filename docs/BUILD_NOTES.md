@@ -3,7 +3,7 @@
 What Kilobyte contains, what has been added, and the reasoning behind the decisions that
 are not obvious from the code.
 
-Framework version 1.13.1 · brain `kilobyte-1.5b-q4_k_m.gguf` (Qwen2.5 1.5B Q4_K_M,
+Framework version 1.13.2 · brain `kilobyte-1.5b-q4_k_m.gguf` (Qwen2.5 1.5B Q4_K_M,
 Apache-2.0) · SHA-256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`
 
 ## What is in it
@@ -39,6 +39,15 @@ and a stricter read-only policy for anything arriving remotely.
 installer that provisions dependencies, the service user, the model and the service.
 
 ## Changes and why
+
+### 1.13.2: deterministic Telegram research follow-through
+
+Research-mode answers are now completion-gated by the framework: a turn must successfully
+run both `web_search` and `web_fetch` before its synthesis is accepted. If a model answers
+from memory, stops at a search snippet, or only announces that it will research, the agent
+clears that intermediate text and continues the tool loop. General unfinished promises get
+three bounded retries; repeated non-performance is surfaced as a failure instead of being
+recorded as a completed task.
 
 ### 1.13.1: reliable research tools and cleaner live interfaces
 
