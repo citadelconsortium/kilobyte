@@ -92,6 +92,8 @@ generation without leaving; **Ctrl-Q** quits. On a terminal without `prompt_tool
 back to a streaming line-based UI automatically.
 The full TUI uses the exact v1.13.0 output: the original agent row, `◈` tool activity,
 result rows, faint divider, and final response all remain inside one continuous **Kilo** box.
+Fenced code is highlighted by its declared language—keywords, functions, strings, numbers,
+comments, and operators receive distinct terminal colours without changing that layout.
 
 In-TUI commands:
 
@@ -307,7 +309,8 @@ selects a configured provider until `/local` switches back. While Kilo works it 
 indicator alive, rapidly animates a progress card, and maintains a separate redacted live-work
 message with every tool, argument, result summary, and reply preview. The final answer renders
 headings, bullets, links, and code as clean Telegram HTML, followed by the brain, agent, elapsed
-time, and tools used. Provider tool markup is intercepted and dispatched as a real allowed tool
+time, and tools used; labelled code fences request Telegram's language-aware highlighting.
+Provider tool markup is intercepted and dispatched as a real allowed tool
 call rather than displayed as code; excess blank space is collapsed. Context follows the active
 route instead of showing the local 8192-token window for a cloud model. Errors come back as a
 message — never silence.
