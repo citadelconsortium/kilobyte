@@ -55,8 +55,9 @@ include a project user-agent to avoid edge-signature blocking, and retired
 `kilo` launches the bordered prompt-toolkit TUI; `kilo chat` is the streaming
 CLI. `/commands` and `/help` list controls. `/botkey` securely updates the Telegram
 token through the daemon RPC. Telegram publishes real command autocomplete and provides
-persistent `/local`, `/cloud`, `/switch`, `/model`, and `/agent` routing per chat. Remote
-tool access stays read-only. Progress animates every 1.2 seconds. A second persistent card
+persistent `/local`, `/cloud`, `/switch`, `/model`, and `/agent` routing per chat. Allow-listed
+chats receive every built-in tool; non-safe actions require one-time Approve/Deny callbacks
+bound to that chat. Progress animates every 1.2 seconds. A second persistent card
 contains the bounded, redacted activity log and live token preview. Some compatible cloud
 models emit `<tool_call>` XML in the content stream; `agent.py` recovers it only when the
 tool exists in the already-filtered remote schema, emits `response_reset`, and dispatches
@@ -97,7 +98,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate currently covers 143 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 145 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a
