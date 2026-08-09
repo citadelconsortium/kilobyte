@@ -209,8 +209,9 @@ sudo nano /etc/kilobyte/providers.json   # add your key
 
 Escalated (cloud) models in the terminal are given the **same tools** the local model has —
 terminal, files, web, memory, reference — so a frontier model works *through* the framework
-rather than guessing blind. Over Telegram, cloud models receive the same read-only tool
-subset as the local brain. `/model` fetches the configured provider's live model catalogue (free
+rather than guessing blind. Allow-listed Telegram chats receive the same built-in tools;
+safe inspection runs immediately and state-changing actions require an exact Approve/Deny
+decision in that chat. `/model` fetches the configured provider's live model catalogue (free
 models are prioritised for OpenRouter) so you
 can switch without hunting for names; the active model, token usage and context show live
 in the stats bar and F2 panel.
@@ -316,9 +317,10 @@ route instead of showing the local 8192-token window for a cloud model. Errors c
 message — never silence.
 `/cancel` (and the Stop button) cancels only that chat's active and queued tasks.
 
-Telegram talks to the same persistent brain as the terminal but under a read-only policy: no
-terminal, file writes, privileges, services, packages, or process control. Cloud routing changes
-where inference runs, not what remote tools are allowed to do.
+Telegram talks to the same persistent brain as the terminal. Commands and file tools are
+available only to configured chat IDs; safe reads run directly, while writes, outward commands,
+privileges, services, packages, process control, and destructive actions pause for one-time
+Approve/Deny buttons. The decision is bound to the requesting chat and expires after 280 seconds.
 
 ## Security
 
