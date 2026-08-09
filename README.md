@@ -201,9 +201,10 @@ sudo install -m 0600 -o kilobyte -g kilobyte config/providers.example.json /etc/
 sudo nano /etc/kilobyte/providers.json   # add your key
 ```
 
-Escalated (cloud) models are given the **same tools** the local model has — terminal,
-files, web, memory, reference — so a frontier model works *through* the framework rather
-than guessing blind. `/model` fetches the configured provider's live model catalogue (free
+Escalated (cloud) models in the terminal are given the **same tools** the local model has —
+terminal, files, web, memory, reference — so a frontier model works *through* the framework
+rather than guessing blind. Over Telegram, cloud models receive the same read-only tool
+subset as the local brain. `/model` fetches the configured provider's live model catalogue (free
 models are prioritised for OpenRouter) so you
 can switch without hunting for names; the active model, token usage and context show live
 in the stats bar and F2 panel.
@@ -212,8 +213,8 @@ The rules are deliberate: local is always the default, escalation happens only f
 message you prefixed with `/cloud` and lasts exactly that one message, there is no
 automatic fallback when the local model is slow or fails, the reply is labelled with the
 brain that produced it, and with no providers file there is no cloud path at all. Keys
-live in a `0600` file, travel in a header over HTTPS only, and are never logged. Cloud
-escalation is not available over Telegram.
+live in a `0600` file, travel in a header over HTTPS only, and are never logged. Telegram
+uses local by default and changes route only after an allow-listed owner sends `/cloud`.
 
 ## Private mode (Tor)
 
@@ -295,16 +296,20 @@ JSON
 The bridge picks the file up within 30 seconds; no restart needed. Messages from any chat not in the
 list are ignored and logged.
 
-In the chat you get `/start`, `/status`, `/new` and `/help` in Telegram's command menu, plus inline
-buttons for status, a new conversation and help. While Kilo works it keeps a typing indicator alive
-and edits a live progress line (`◈ running web_search…`), then replaces it with the answer and the
-tools that were used. Errors come back as a message — never silence.
+The command menu and autocomplete are published through Telegram's `setMyCommands` API. It includes
+`/start`, `/status`, `/new`, `/local`, `/cloud`, `/switch`, `/models`, `/model`, `/agent`, `/id`,
+and `/help`, with matching inline buttons. `/new` rotates the real per-chat session; `/cloud`
+selects a configured provider until `/local` switches back. While Kilo works it keeps a typing
+indicator alive and edits a live progress card, then replaces it with the answer, brain, agent,
+elapsed time, and tools used. Errors come back as a message — never silence.
 
 Telegram talks to the same persistent brain as the terminal but under a read-only policy: no
-terminal, file writes, privileges, services, packages, or process control.
+terminal, file writes, privileges, services, packages, or process control. Cloud routing changes
+where inference runs, not what remote tools are allowed to do.
 
 ## Security
 
 Paths are normalized and restricted to the service user's home and `/tmp`; commands never use a shell;
-runtime, output, and file sizes are bounded; private-network web fetches are blocked; writes and elevated or
-destructive commands require an interactive one-shot permission; Telegram cannot mutate or administer the host.
+runtime, output, and file sizes are bounded; private-network web fetches are blocked; writes, active outward
+commands, elevated operations, and destructive commands have separate interactive approval classes; Telegram
+cannot mutate or administer the host.

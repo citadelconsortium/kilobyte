@@ -50,9 +50,11 @@ include a project user-agent to avoid edge-signature blocking, and retired
 ## UI / controls
 
 `kilo` launches the bordered prompt-toolkit TUI; `kilo chat` is the streaming
-CLI. `/commands` and `/help` list controls. `/botkey` securely updates the
-Telegram token through the daemon RPC. Telegram progress edits every three
-seconds and includes a bounded live token preview.
+CLI. `/commands` and `/help` list controls. `/botkey` securely updates the Telegram
+token through the daemon RPC. Telegram publishes real command autocomplete and provides
+persistent `/local`, `/cloud`, `/switch`, `/model`, and `/agent` routing per chat. Remote
+tool access stays read-only. Progress edits every three seconds and includes a bounded
+live token preview.
 The live stats bar intentionally omits the user's request text so status indicators stay
 compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
 The animated context meter is local-only; cloud mode omits context from the status bar.
@@ -65,14 +67,15 @@ Past-chat selectors include local date/time. OpenRouter free-model discovery acc
 
 `scripts/install-online.sh` downloads this repository, runs the dependency/app
 installer, then `install-model.sh` downloads and verifies brain-1.1 atomically.
-The Framework repository is brain-free and has its own installer; it accepts a
-user GGUF or cloud provider. Never commit the 986 MB GGUF to Git.
+The Framework repository is brain-free and has its own installer; it accepts a user GGUF
+or cloud provider. The 986 MB GGUF belongs in the verified `brain-1.1` GitHub release
+asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The Kilobase VM is an exact checkout of `origin/main`; daemon, model checksum,
-socket, memory, and disk checks pass. The full suite is 107 tests and passes in
-the VM. The VM is a Core 2 Duo/SSE4 guest with two CPUs; local inference can take
+The release gate requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
+Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a
 model checksum or daemon failure. Use AVX2+ hardware or explicit cloud escalation
 for advanced coding/research workloads.

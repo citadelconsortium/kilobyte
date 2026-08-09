@@ -20,7 +20,10 @@ if command -v pacman >/dev/null; then
     if ! python -c "import prompt_toolkit" 2>/dev/null; then
         PACMAN_PACKAGES+=(python-prompt_toolkit)
     fi
-    pacman -Sy --needed --noconfirm "${PACMAN_PACKAGES[@]}"
+    # Do not use `pacman -Sy`: refreshing databases without a full upgrade creates an
+    # unsupported partial-upgrade state. The existing synchronized databases are enough
+    # for an idempotent dependency install.
+    pacman -S --needed --noconfirm "${PACMAN_PACKAGES[@]}"
 fi
 command -v python >/dev/null
 command -v llama-server >/dev/null || { echo "Install llama-cpp first." >&2; exit 1; }

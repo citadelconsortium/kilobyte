@@ -1,6 +1,6 @@
 [Unit]
 Description=Kilobyte local-first AI daemon
-Documentation=https://github.com/local/kilobyte
+Documentation=https://github.com/citadelconsortium/kilobyte
 After=network-online.target
 Wants=network-online.target
 
