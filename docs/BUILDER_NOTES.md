@@ -11,11 +11,17 @@ agent must address the operator as **Sir**, ground claims in tool evidence, and
 continue tool work until the requested task is complete. Destructive actions and
 external side effects remain approval-gated.
 
-The cloud catalog includes NVIDIA NIM, Z.AI/GLM, AI Native Studio, and Speka in
-addition to the established providers. AI Native Studio requires its documented
-`X-API-Key` header; the other catalog entries use Bearer authentication. Provider
+The cloud catalog includes Ollama Cloud, Agnes AI, ModelScope, LLM7.io, OpenCode Zen,
+and GLHF.chat in addition to the established providers. These integrations use their
+documented OpenAI-compatible endpoints and Bearer authentication. Provider
 base URLs and default models are defined in `src/kilobyte/providers.py` and model
-catalogues are fetched live through `/model`.
+catalogues are fetched live through `/model`. Defaults are Ollama Cloud
+`https://ollama.com/v1` (`gpt-oss:120b`), Agnes AI
+`https://apihub.agnes-ai.com/v1` (`agnes-2.0-flash`), ModelScope
+`https://api-inference.modelscope.cn/v1` (`Qwen/Qwen3-32B`), LLM7.io
+`https://api.llm7.io/v1` (`fast`), OpenCode Zen
+`https://opencode.ai/zen/v1` (`big-pickle`), and GLHF.chat
+`https://glhf.chat/api/openai/v1` (`hf:meta-llama/Llama-3.3-70B-Instruct`).
 
 ## Brain
 
