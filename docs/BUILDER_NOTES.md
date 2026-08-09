@@ -11,6 +11,12 @@ agent must address the operator as **Sir**, ground claims in tool evidence, and
 continue tool work until the requested task is complete. Destructive actions and
 external side effects remain approval-gated.
 
+The cloud catalog includes NVIDIA NIM, Z.AI/GLM, AI Native Studio, and Speka in
+addition to the established providers. AI Native Studio requires its documented
+`X-API-Key` header; the other catalog entries use Bearer authentication. Provider
+base URLs and default models are defined in `src/kilobyte/providers.py` and model
+catalogues are fetched live through `/model`.
+
 ## Brain
 
 - Release: `brain-1.1`, GitHub asset `kilobyte.gguf`
