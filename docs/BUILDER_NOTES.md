@@ -37,7 +37,10 @@ catalogues are fetched live through `/model`. Defaults are Ollama Cloud
 Profiles: orchestrator, research, coding, security, systems, conversation, and
 private. Built-in tools cover files, shell, web search/fetch, memory, skills,
 references, system inspection, and MCP. The security profile is operator-targeted
-and must retain the permission boundary; do not weaken it to claim “hacking power.”
+and must retain the permission boundary: active work is limited to the exact target and
+scope Sir supplies. It deliberately has no static hacking playbook. It recalls and saves
+verified custom methods through `recall`/`save_skill`; never reintroduce the old seeded
+`authorized-security-tool-learning` record.
 
 Cloud providers are explicit-only and HTTPS-only. The catalog includes Hugging Face
 Inference Providers (`https://router.huggingface.co/v1`) and account-scoped Cloudflare
@@ -53,8 +56,15 @@ include a project user-agent to avoid edge-signature blocking, and retired
 CLI. `/commands` and `/help` list controls. `/botkey` securely updates the Telegram
 token through the daemon RPC. Telegram publishes real command autocomplete and provides
 persistent `/local`, `/cloud`, `/switch`, `/model`, and `/agent` routing per chat. Remote
-tool access stays read-only. Progress edits every three seconds and includes a bounded
-live token preview.
+tool access stays read-only. Progress animates every 1.2 seconds. A second persistent card
+contains the bounded, redacted activity log and live token preview. Some compatible cloud
+models emit `<tool_call>` XML in the content stream; `agent.py` recovers it only when the
+tool exists in the already-filtered remote schema, emits `response_reset`, and dispatches
+it normally. Never execute a recovered name outside that schema. `telegram_render.py`
+converts common Markdown to Telegram-safe HTML for clean research answers.
+It collapses excess blank lines outside code blocks and splits long HTML with balanced
+tags. Context reporting is route-aware: local shows the adaptive llama.cpp window; cloud
+shows the provider-advertised limit or `provider-managed` when its catalogue omits one.
 The live stats bar intentionally omits the user's request text so status indicators stay
 compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
 The animated context meter is local-only; cloud mode omits context from the status bar.
@@ -73,7 +83,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 135 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a
