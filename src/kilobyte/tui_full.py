@@ -55,20 +55,20 @@ KILO_ART = (
 # machine rather than a generic eye: the shell breathes, pupils scan, and the
 # eyelids blink from the shared animation tick.
 MASCOT_OPEN = (
-    "  ▄█     █▄  ",
-    " ▟██▓▓▓▓▓██▙ ",
-    "▐██▓●▓●██▌",
-    "▐██▓ ▾ ▓██▌",
-    "▐██▓▄▄▄▓██▌",
-    " ▜███████▛ ",
+    "    ▄▄▄▄▄    ",  # top hat
+    "   ▟█████▙   ",
+    " ▄██●▓●██▄ ",  # glowing eyes
+    "▐██▓ ▾ ▓██▌",  # fang
+    " ▜██▓═▓██▛ ",  # bow tie
+    "  ▀██▓██▀  ",
 )
 MASCOT_BLINK = (
-    "  ▄█     █▄  ",
-    " ▟██▓▓▓▓▓██▙ ",
-    "▐██▓━▓━██▌",
+    "    ▄▄▄▄▄    ",
+    "   ▟█████▙   ",
+    " ▄██━▓━██▄ ",
     "▐██▓ ▾ ▓██▌",
-    "▐██▓▄▄▄▓██▌",
-    " ▜███████▛ ",
+    " ▜██▓═▓██▛ ",
+    "  ▀██▓██▀  ",
 )
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"       # default "thinking" spinner
