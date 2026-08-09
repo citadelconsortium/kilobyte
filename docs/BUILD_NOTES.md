@@ -3,7 +3,7 @@
 What Kilobyte contains, what has been added, and the reasoning behind the decisions that
 are not obvious from the code.
 
-Framework version 1.13.4 · brain `kilobyte-1.5b-q4_k_m.gguf` (Qwen2.5 1.5B Q4_K_M,
+Framework version 1.13.5 · brain `kilobyte-1.5b-q4_k_m.gguf` (Qwen2.5 1.5B Q4_K_M,
 Apache-2.0) · SHA-256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`
 
 ## What is in it
@@ -39,6 +39,15 @@ and a stricter read-only policy for anything arriving remotely.
 installer that provisions dependencies, the service user, the model and the service.
 
 ## Changes and why
+
+### 1.13.5: language-aware code output
+
+Fenced code in the confirmed v1.13.0 one-box TUI now uses Pygments to distinguish
+keywords, functions, classes, strings, numbers, comments, operators, and punctuation.
+The fence language selects the lexer and unknown languages fall back to plain code. The
+box, agent/tool rows, divider, streaming path, and response placement are unchanged.
+Telegram emits its supported `<pre><code class="language-…">` form for labelled fences.
+Installers provision Pygments on Arch and other supported Linux distributions.
 
 ### 1.13.4: exact v1.13.0 TUI restoration
 

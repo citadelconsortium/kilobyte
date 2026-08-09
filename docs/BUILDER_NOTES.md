@@ -72,9 +72,10 @@ final answer until both `web_search` and `web_fetch` have succeeded in that turn
 planning/promise text emits `response_reset`, so Telegram shows only the finished synthesis.
 General announced-but-undelivered actions receive three bounded follow-through attempts and
 are then reported honestly as failed rather than stored or displayed as completed work.
-The full-screen TUI is restored byte-for-byte from the v1.13.0 release. Its original agent
-row, `◈` tool activity/result rows, faint divider, and final reply share one Kilo border.
-Never replace it with separate live-work/answer boxes or add capability-manifest rows.
+The full-screen TUI preserves the v1.13.0 renderer: its original agent row, `◈` tool
+activity/results, faint divider, and final reply share one Kilo border. Pygments styles only
+the content inside fenced code, selected by the fence language. Never replace the turn with
+separate live-work/answer boxes or add capability-manifest rows.
 Cloud providers receive native tool schemas first. Models/endpoints that reject that field
 are retried once with the same schemas in a JSON text-tool protocol; both XML-function and
 JSON tool envelopes are recovered only through the active allow-list.
@@ -96,7 +97,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate currently covers 141 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 143 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a

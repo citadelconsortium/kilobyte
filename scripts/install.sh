@@ -20,6 +20,9 @@ if command -v pacman >/dev/null; then
     if ! python -c "import prompt_toolkit" 2>/dev/null; then
         PACMAN_PACKAGES+=(python-prompt_toolkit)
     fi
+    if ! python -c "import pygments" 2>/dev/null; then
+        PACMAN_PACKAGES+=(python-pygments)
+    fi
     # Arch only supports full upgrades. Installing a newer llama-cpp against an
     # older ggml library leaves llama-server with unresolved symbols, so keep the
     # complete system coherent before installing the requested packages.
@@ -39,12 +42,12 @@ fi
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 [[ -n "$PYTHON_BIN" ]] || { echo "Python 3.11+ is required." >&2; exit 1; }
 command -v llama-server >/dev/null || { echo "Install llama.cpp's llama-server for your distribution first." >&2; exit 1; }
-# The TUI needs prompt_toolkit. Prefer the distro package (installed above); fall back to
-# pip so a non-Arch host still gets a working interface.
-if ! "$PYTHON_BIN" -c "import prompt_toolkit" 2>/dev/null; then
-    "$PYTHON_BIN" -m pip install --break-system-packages prompt_toolkit 2>/dev/null \
-        || "$PYTHON_BIN" -m pip install prompt_toolkit \
-        || echo "warning: prompt_toolkit missing; the TUI will use the simple fallback UI" >&2
+# The full TUI needs prompt_toolkit and uses Pygments for language-aware code output.
+# Prefer distro packages where installed above; use pip as the portable fallback.
+if ! "$PYTHON_BIN" -c "import prompt_toolkit, pygments" 2>/dev/null; then
+    "$PYTHON_BIN" -m pip install --break-system-packages prompt_toolkit pygments 2>/dev/null \
+        || "$PYTHON_BIN" -m pip install prompt_toolkit pygments \
+        || echo "warning: prompt_toolkit/Pygments missing; code output will use the simple fallback UI" >&2
 fi
 
 if ! id "$KILO_USER" >/dev/null 2>&1; then
