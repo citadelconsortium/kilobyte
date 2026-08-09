@@ -72,6 +72,13 @@ final answer until both `web_search` and `web_fetch` have succeeded in that turn
 planning/promise text emits `response_reset`, so Telegram shows only the finished synthesis.
 General announced-but-undelivered actions receive three bounded follow-through attempts and
 are then reported honestly as failed rather than stored or displayed as completed work.
+The full-screen TUI uses the original single Kilo turn box: agent activation, exact active
+tools, redacted tool work, and final text share that border. Never split live work into a
+second TUI box. Thinking events update animation state without appending rows; leading and
+repeated provider blank lines are suppressed, and `response_reset` retracts the preamble.
+Cloud providers receive native tool schemas first. Models/endpoints that reject that field
+are retried once with the same schemas in a JSON text-tool protocol; both XML-function and
+JSON tool envelopes are recovered only through the active allow-list.
 The live stats bar intentionally omits the user's request text so status indicators stay
 compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
 The animated context meter is local-only; cloud mode omits context from the status bar.
@@ -90,7 +97,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate currently covers 137 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 143 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a
