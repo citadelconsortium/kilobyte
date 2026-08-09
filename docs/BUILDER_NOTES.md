@@ -43,6 +43,7 @@ Telegram token through the daemon RPC. Telegram progress edits every three
 seconds and includes a bounded live token preview.
 The live stats bar intentionally omits the user's request text so status indicators stay
 compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
+Cloud context is shown only when the selected model API reports a verified limit.
 
 ## Install / release
 
