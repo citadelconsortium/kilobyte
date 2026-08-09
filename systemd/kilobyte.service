@@ -14,7 +14,9 @@ ExecStart=/usr/bin/python -m kilobyte.daemon
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
-TimeoutStopSec=60
+# The CPU-only guest can take over a minute to release llama-server's model.
+# Allow a graceful stop before systemd resorts to SIGKILL.
+TimeoutStopSec=180
 RuntimeDirectory=kilobyte
 RuntimeDirectoryMode=0750
 StateDirectory=kilobyte
@@ -32,4 +34,3 @@ LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target
-
