@@ -21,5 +21,9 @@ ROOT="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d -name '*-'"$BRANCH" -print 
 [[ -n "$ROOT" ]] || { echo "downloaded repository has no source directory" >&2; exit 1; }
 sudo KILOBYTE_USER="$OWNER" "$ROOT/scripts/install.sh"
 sudo KILOBYTE_USER="$OWNER" "$ROOT/scripts/install-model.sh"
-sudo systemctl restart kilobyte.service
+if command -v systemctl >/dev/null; then
+  sudo systemctl restart kilobyte.service
+else
+  echo "systemd not detected; register 'python3 -m kilobyte.daemon' with your init system."
+fi
 echo "Kilobyte installed. Run: kilo"

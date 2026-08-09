@@ -33,9 +33,9 @@ separate, reproducible training pipeline.
 
 ## Install
 
-Kilobyte runs on any modern **Linux** distribution. The one-line installer targets
-Arch (it uses `pacman`); on other distros install the handful of dependencies with your
-package manager first (see below), then run the manual install.
+Kilobyte runs on any modern **Linux** distribution. The installer handles Arch,
+Debian/Ubuntu, Fedora/RHEL, openSUSE, and Alpine package managers, and the application layer
+also installs on other distributions with preinstalled dependencies.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/citadelconsortium/kilobyte/main/scripts/install-online.sh | bash
@@ -47,10 +47,10 @@ On Arch, the installer handles system dependencies (`llama-cpp`, `python`, `curl
 model, and starts the service — nothing else is required. It performs a full supported Arch
 upgrade so `llama-cpp` and `ggml` cannot be left at ABI-incompatible versions.
 
-On any other Linux, install those same packages with your distro's package manager
-(`apt`, `dnf`, `zypper`, …) — anything providing `llama-server`, Python 3.11+, `curl`,
-`sqlite3` and `ripgrep` — then use the manual install below. Everything above the OS package
-layer is portable.
+On non-Arch Linux, the installer provisions the common tools automatically. Install a
+distribution-compatible `llama-server` first if your repositories do not package llama.cpp;
+everything above that OS runtime layer is portable. On non-systemd systems the installer
+prints the daemon command so it can be registered with the native init system.
 
 To install manually from a local checkout instead:
 
