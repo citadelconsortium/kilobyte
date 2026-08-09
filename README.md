@@ -122,8 +122,9 @@ rather than guess. Sampling runs at a low temperature to curb confident confabul
 
 Specialist **agent profiles** sharpen this per domain — `research` (retrieve, corroborate
 across sources, cite), `coding` (never claim code works without running it), `security` (the
-hacking agent: **offensive and defensive**, with a recon→enumerate→exploit→privesc→report
-playbook that acts on operator-given targets), `systems` (diagnose from the live machine),
+hacking agent: **offensive and defensive**, builds a target-specific method only for the exact
+scope the operator approves, and saves verified approaches instead of using a canned playbook),
+`systems` (diagnose from the live machine),
 `conversation` (the default: understand intent, then follow through), and `private` (web
 work routed through Tor). Kilo picks a
 profile from the request or you name one with `/agent`; the active profile shows in the
@@ -301,8 +302,13 @@ The command menu and autocomplete are published through Telegram's `setMyCommand
 `/start`, `/status`, `/new`, `/local`, `/cloud`, `/switch`, `/models`, `/model`, `/agent`, `/id`,
 and `/help`, with matching inline buttons. `/new` rotates the real per-chat session; `/cloud`
 selects a configured provider until `/local` switches back. While Kilo works it keeps a typing
-indicator alive and edits a live progress card, then replaces it with the answer, brain, agent,
-elapsed time, and tools used. Errors come back as a message — never silence.
+indicator alive, rapidly animates a progress card, and maintains a separate redacted live-work
+message with every tool, argument, result summary, and reply preview. The final answer renders
+headings, bullets, links, and code as clean Telegram HTML, followed by the brain, agent, elapsed
+time, and tools used. Provider tool markup is intercepted and dispatched as a real allowed tool
+call rather than displayed as code; excess blank space is collapsed. Context follows the active
+route instead of showing the local 8192-token window for a cloud model. Errors come back as a
+message — never silence.
 
 Telegram talks to the same persistent brain as the terminal but under a read-only policy: no
 terminal, file writes, privileges, services, packages, or process control. Cloud routing changes
