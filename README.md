@@ -73,7 +73,7 @@ Telegram naturally require a network.
 |---|---|
 | `kilo` | Open the interactive TUI |
 | `kilo chat "…"` | Send one prompt and stream the answer |
-| `kilo status` | Daemon, model and resource status |
+| `kilo status` | Color-coded `READY`/`DEGRADED`/`FAILED` daemon, brain, cache and resource status |
 | `kilo doctor` | Health checks (`--verify-model` also checks the SHA-256) |
 | `kilo resources` | Live resource profile |
 | `kilo model-info` | The one installed brain |
