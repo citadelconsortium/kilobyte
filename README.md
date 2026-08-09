@@ -17,7 +17,7 @@
 ### Why Kilobyte beats the rest
 - **It acts, it doesn’t just talk** — real tools (shell, files, web), and it works *until the task is done*, not until a step counter runs out.
 - **Private by default** — your brain runs locally; nothing leaves the box unless you send it to /cloud on purpose.
-- **Powerful on demand** — /cloud escalation hands any of 14 frontier providers your machine + your tools.
+- **Powerful on demand** — /cloud escalation hands any of 17 cloud providers your machine + your tools.
 - **Grounded & honest** — an orchestrator commissions specialist agents (coding, security, research, systems, private) over an offline reference bank.
 - **Production-ready** — one-line installer, checksum-verified brains with rollback, 100+ tests, systemd, Telegram.
 
