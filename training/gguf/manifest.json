@@ -1,5 +1,6 @@
 {
-  "artifact": "kilobyte.gguf",
+  "artifact": "kilobyte-1.5b-q4_k_m.gguf",
+  "release_asset": "kilobyte.gguf",
   "release": "brain-1.1",
   "sha256": "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7",
   "size_bytes": 986047936,

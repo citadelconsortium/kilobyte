@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 
-MODEL_FILENAME = "kilobyte.gguf"
+# Descriptive local filename; the GitHub release asset remains kilobyte.gguf for
+# backwards compatibility with existing download URLs.
+MODEL_FILENAME = "kilobyte-1.5b-q4_k_m.gguf"
+LEGACY_MODEL_FILENAME = "kilobyte.gguf"
 MODEL_URL = "https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.1/kilobyte.gguf"
 MODEL_SHA256 = "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7"
 MODEL_REPOSITORY = "citadelconsortium/kilobyte (release brain-1.1)"
@@ -68,7 +71,11 @@ class Settings:
         promoted = self.data_dir / "models" / "current" / "kilobyte.gguf"
         if promoted.is_file():
             return promoted
-        return self.data_dir / "models" / MODEL_FILENAME
+        named = self.data_dir / "models" / MODEL_FILENAME
+        if named.is_file():
+            return named
+        legacy = self.data_dir / "models" / LEGACY_MODEL_FILENAME
+        return legacy if legacy.is_file() else named
 
     @property
     def database_path(self) -> Path:
@@ -108,4 +115,3 @@ class Settings:
                 return json.load(handle)
         except FileNotFoundError:
             return default
-

@@ -25,7 +25,7 @@ catalogues are fetched live through `/model`. Defaults are Ollama Cloud
 
 ## Brain
 
-- Release: `brain-1.1`, GitHub asset `kilobyte.gguf`
+- Release: `brain-1.1`, installed filename `kilobyte-1.5b-q4_k_m.gguf` (GitHub asset `kilobyte.gguf` retained for URL compatibility)
 - Base: `unsloth/Qwen2.5-1.5B-Instruct`, QLoRA fine-tune, Q4_K_M
 - SHA-256: `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`
 - Size: 986,047,936 bytes; GGUF v3 / qwen2
