@@ -244,7 +244,7 @@ current request and clears the queue.
 ## The brain
 
 **There is exactly one Kilobyte brain, trained once.** It is a single canonical
-`kilobyte.gguf` — **Qwen2.5-1.5B fine-tuned for the Kilo persona and tool-call format,
+`kilobyte-1.5b-q4_k_m.gguf` — **Qwen2.5-1.5B fine-tuned for the Kilo persona and tool-call format,
 quantised to Q4_K_M** — published on GitHub Releases
 ([`brain-1.1`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.1),
 sha256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`) and mirrored on Kaggle Models. **Installing Kilo never trains
@@ -269,13 +269,13 @@ Training is a **maintainer-only** activity, not part of using or installing Kilo
 separate, reproducible pipeline in [`training/`](training/README.md): build and validate the
 dataset on CPU, fine-tune with QLoRA on Kaggle's GPU, convert and quantise to GGUF, evaluate
 against a fixed suite, then stage and promote to produce a new canonical brain. End users
-never run it — they just receive the finished `kilobyte.gguf`.
+never run it — they just receive the finished `kilobyte-1.5b-q4_k_m.gguf`.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — how the pieces fit and why
 - [Build notes](docs/BUILD_NOTES.md) — what is in it, what changed, measured results, known limits
-- [Training pipeline](training/README.md) — how kilobyte.gguf is built
+- [Training pipeline](training/README.md) — how the descriptive GGUF is built (the release URL remains `kilobyte.gguf` for compatibility)
 - [Dataset spec](training/dataset_spec.md) — the SFT data format and distribution
 
 ## Telegram
