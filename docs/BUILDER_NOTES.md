@@ -65,6 +65,8 @@ converts common Markdown to Telegram-safe HTML for clean research answers.
 It collapses excess blank lines outside code blocks and splits long HTML with balanced
 tags. Context reporting is route-aware: local shows the adaptive llama.cpp window; cloud
 shows the provider-advertised limit or `provider-managed` when its catalogue omits one.
+`/cancel` and the Stop button cancel the requesting chat's tracked active/queued tasks;
+do not collapse this into a global daemon or inference shutdown.
 The live stats bar intentionally omits the user's request text so status indicators stay
 compact; it shows phase, request count, tools, tokens, model, queue, and context instead.
 The animated context meter is local-only; cloud mode omits context from the status bar.
@@ -83,7 +85,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate currently covers 135 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 136 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a
