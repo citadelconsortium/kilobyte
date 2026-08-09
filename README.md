@@ -44,7 +44,8 @@ kilo
 
 On Arch, the installer handles system dependencies (`llama-cpp`, `python`, `curl`, `sqlite`,
 `ripgrep`), creates the service user if needed, installs the app, downloads and verifies the
-model, and starts the service — nothing else is required.
+model, and starts the service — nothing else is required. It performs a full supported Arch
+upgrade so `llama-cpp` and `ggml` cannot be left at ABI-incompatible versions.
 
 On any other Linux, install those same packages with your distro's package manager
 (`apt`, `dnf`, `zypper`, …) — anything providing `llama-server`, Python 3.11+, `curl`,

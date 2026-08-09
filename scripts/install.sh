@@ -20,10 +20,10 @@ if command -v pacman >/dev/null; then
     if ! python -c "import prompt_toolkit" 2>/dev/null; then
         PACMAN_PACKAGES+=(python-prompt_toolkit)
     fi
-    # Do not use `pacman -Sy`: refreshing databases without a full upgrade creates an
-    # unsupported partial-upgrade state. The existing synchronized databases are enough
-    # for an idempotent dependency install.
-    pacman -S --needed --noconfirm "${PACMAN_PACKAGES[@]}"
+    # Arch only supports full upgrades. Installing a newer llama-cpp against an
+    # older ggml library leaves llama-server with unresolved symbols, so keep the
+    # complete system coherent before installing the requested packages.
+    pacman -Syu --needed --noconfirm "${PACMAN_PACKAGES[@]}"
 fi
 command -v python >/dev/null
 command -v llama-server >/dev/null || { echo "Install llama-cpp first." >&2; exit 1; }
