@@ -98,7 +98,7 @@ asset, not duplicated as a normal source-tree blob.
 
 ## Verification state
 
-The release gate currently covers 145 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
+The release gate currently covers 151 tests. It requires daemon, model checksum, socket, memory, disk, RPC disconnect,
 Telegram routing, and provider-catalog checks to pass on Kilobase. The VM is a Core 2
 Duo/SSE4 guest with two CPUs; local inference can take
 minutes or longer for a large grounded prompt. This is hardware-bound, not a

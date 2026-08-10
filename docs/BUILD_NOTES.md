@@ -17,9 +17,9 @@ adapters, no model picker, no automatic cloud fallback. Optional, explicit cloud
 **Front ends.** An animated terminal TUI, and an optional Telegram bridge. Both talk to the
 same daemon over a Unix socket and share one loaded model with separate conversations.
 
-**Tools.** Thirteen, all verified end to end: `read_file`, `write_file`, `list_files`,
+**Tools.** Fourteen, all verified end to end: `read_file`, `write_file`, `list_files`,
 `search_files`, `run_command`, `system_info`, `web_search`, `web_fetch`, `remember`,
-`recall`, `save_skill`, `list_skills`, `search_history`. MCP servers can add more. The tool
+`recall`, `save_skill`, `list_skills`, `search_history`, `reference`. MCP servers can add more. The tool
 set is deliberately **stable** (never routed per request) so the prompt prefix stays
 cacheable.
 
@@ -39,6 +39,21 @@ and a stricter read-only policy for anything arriving remotely.
 installer that provisions dependencies, the service user, the model and the service.
 
 ## Changes and why
+
+### 1.14.0: stronger local brain and compact one-box work output
+
+The local brain moves to a newly fine-tuned 3B base with native function-call rendering;
+its public Kilo filename is `kilobyte-4.1-3b-q4_k_m.gguf`. Training examples retain native
+assistant tool calls and tool-result messages instead of flattening protocol into visible
+chat text. Promotion requires the raw GGUF suite and an isolated real-framework RPC suite
+covering exact arguments, permission round-trips, follow-through, memory, skills, research,
+and clean final text.
+
+The established single Kilo TUI box remains intact. Live work is compacted into `Ran`,
+`Explored`, `Wrote`, and `Used` rows with nested bounded results; leading model whitespace
+is discarded after every tool event, and fenced code receives language-aware Pygments
+colour without changing the box. `kilo status` refreshes detected total and available RAM
+on every request while preserving the runtime's actual active context and thread settings.
 
 ### 1.13.6: Telegram machine tools with in-chat approval
 
