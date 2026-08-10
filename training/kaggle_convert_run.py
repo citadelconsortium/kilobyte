@@ -16,7 +16,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", default="oversightnode")
     parser.add_argument("--training-kernel", default="oversightnode/kilobyte-train")
-    parser.add_argument("--slug", default="kilobyte-convert")
+    parser.add_argument("--slug", default="kilobyte-gguf-convert")
     parser.add_argument("--out", type=Path, default=Path("output/conversion"))
     parser.add_argument("--no-wait", action="store_true")
     args = parser.parse_args()
