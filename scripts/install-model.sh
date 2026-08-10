@@ -2,10 +2,10 @@
 set -euo pipefail
 
 MODEL_DIR="${KILOBYTE_MODEL_DIR:-/var/lib/kilobyte/models}"
-MODEL_FILE="$MODEL_DIR/kilobyte-1.5b-q4_k_m.gguf"
+MODEL_FILE="$MODEL_DIR/kilobyte-4.1-3b-q4_k_m.gguf"
 LEGACY_MODEL_FILE="$MODEL_DIR/kilobyte.gguf"
-MODEL_URL="https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.1/kilobyte.gguf"
-EXPECTED="6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7"
+MODEL_URL="https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.2/kilobyte-4.1-3b-q4_k_m.gguf"
+EXPECTED="72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2"
 OWNER="${KILOBYTE_USER:-kilobyte}"
 GROUP="$(id -gn "$OWNER" 2>/dev/null || echo "$OWNER")"
 
@@ -22,7 +22,7 @@ if [[ -f "$LEGACY_MODEL_FILE" ]] && echo "$EXPECTED  $LEGACY_MODEL_FILE" | sha25
 fi
 
 PART="$MODEL_FILE.part"
-echo "Downloading the one Kilobyte brain (custom Q4_K_M, about 0.94 GB)..."
+echo "Downloading the one Kilobyte brain (custom Q4_K_M, about 2.1 GB)..."
 curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
     --continue-at - --output "$PART" "$MODEL_URL"
 echo "$EXPECTED  $PART" | sha256sum --check

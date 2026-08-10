@@ -25,10 +25,11 @@ catalogues are fetched live through `/model`. Defaults are Ollama Cloud
 
 ## Brain
 
-- Release: `brain-1.1`, installed filename `kilobyte-1.5b-q4_k_m.gguf` (GitHub asset `kilobyte.gguf` retained for URL compatibility)
-- Base: `unsloth/Qwen2.5-1.5B-Instruct`, QLoRA fine-tune, Q4_K_M
-- SHA-256: `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`
-- Size: 986,047,936 bytes; GGUF v3 / qwen2
+- Release: `brain-1.2`, installed filename `kilobyte-4.1-3b-q4_k_m.gguf` (GitHub asset uses the same descriptive name)
+- Base: `ibm-granite/granite-4.1-3b` (Apache-2.0), assistant-only-loss QLoRA fine-tune, Q4_K_M
+- SHA-256: `72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2`
+- Size: 2,099,501,536 bytes; GGUF v3 / granite; llama.cpp ref `69bf6437`
+- Acceptance: 19.5/21 (92.9%), zero critical failures (`training/evaluate.py`)
 - Release asset (not a Git blob); see `training/gguf/manifest.json`
 - Candidate/current/previous promotion and rollback are implemented in `brains.py`.
 
@@ -91,9 +92,9 @@ Past-chat selectors include local date/time. OpenRouter free-model discovery acc
 ## Install / release
 
 `scripts/install-online.sh` downloads this repository, runs the dependency/app
-installer, then `install-model.sh` downloads and verifies brain-1.1 atomically.
+installer, then `install-model.sh` downloads and verifies brain-1.2 atomically.
 The Framework repository is brain-free and has its own installer; it accepts a user GGUF
-or cloud provider. The 986 MB GGUF belongs in the verified `brain-1.1` GitHub release
+or cloud provider. The 2.1 GB GGUF belongs in the verified `brain-1.2` GitHub release
 asset, not duplicated as a normal source-tree blob.
 
 ## Verification state

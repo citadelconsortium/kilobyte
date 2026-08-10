@@ -63,6 +63,12 @@ _PUNT_TAILS: tuple[str, ...] = (
     "checking now",
     "researching now",
     "investigating now",
+    "i'll handle it",
+    "i will handle it",
+    "i'll handle that",
+    "i have the tools",
+    "i've got the tools",
+    "on it, sir",
 )
 
 _INLINE_TOOL_BLOCK_RE = re.compile(

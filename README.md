@@ -252,15 +252,20 @@ current request and clears the queue.
 ## The brain
 
 **There is exactly one Kilobyte brain, trained once.** It is a single canonical
-`kilobyte-1.5b-q4_k_m.gguf` — **Qwen2.5-1.5B fine-tuned for the Kilo persona and tool-call format,
-quantised to Q4_K_M** — published on GitHub Releases
-([`brain-1.1`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.1),
-sha256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`) and mirrored on Kaggle Models. **Installing Kilo never trains
-anything** — the installer only *downloads* that one brain and verifies its SHA-256.
+`kilobyte-4.1-3b-q4_k_m.gguf` — **IBM Granite-4.1-3B (Apache-2.0) fine-tuned for the Kilo persona
+and native tool-call format, quantised to Q4_K_M** — published on GitHub Releases
+([`brain-1.2`](https://github.com/citadelconsortium/kilobyte/releases/tag/brain-1.2),
+sha256 `72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2`) and mirrored on Kaggle
+([`oversightnode/kilobyte-brain`](https://www.kaggle.com/datasets/oversightnode/kilobyte-brain)).
+**Installing Kilo never trains anything** — the installer only *downloads* that one brain and
+verifies its SHA-256. It passes the fixed acceptance suite at 19.5/21 (92.9%) with zero critical
+failures — native function calling, memory/skill tools, tool-result follow-through, and identity.
 
-The brain gives Kilo its identity, reliable tool-call format, and offline grounding; a
-1.5B model's raw capability is bounded, so the framework (grounding, the orchestrator, the
-offline reference bank, and cloud escalation) is what makes it powerful.
+The brain gives Kilo its identity, reliable tool-call format, and offline grounding; even a 3B
+model's raw capability is bounded, so the framework (grounding, the orchestrator, the offline
+reference bank, and cloud escalation) is what makes it powerful. The 3B is portable across
+machines — fast on capable hardware, and still correct (if slow) on the weakest CPU-only box,
+where cloud escalation carries interactive work.
 
 Once installed, a brain can still be upgraded deliberately. A newly built brain is a
 **candidate** and never overwrites the running one until it passes evaluation and is
@@ -277,7 +282,7 @@ Training is a **maintainer-only** activity, not part of using or installing Kilo
 separate, reproducible pipeline in [`training/`](training/README.md): build and validate the
 dataset on CPU, fine-tune with QLoRA on Kaggle's GPU, convert and quantise to GGUF, evaluate
 against a fixed suite, then stage and promote to produce a new canonical brain. End users
-never run it — they just receive the finished `kilobyte-1.5b-q4_k_m.gguf`.
+never run it — they just receive the finished `kilobyte-4.1-3b-q4_k_m.gguf`.
 
 ## Documentation
 

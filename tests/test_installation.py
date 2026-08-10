@@ -11,7 +11,9 @@ class InstallationTests(unittest.TestCase):
         self.assertIn(".part", script)
         self.assertIn("sha256sum --check", script)
         self.assertIn("mv -f", script)
-        self.assertIn("kilobyte.gguf", MODEL_URL)  # release asset retained for URL compatibility
+        # From brain-1.2 the release asset uses the descriptive brain filename.
+        self.assertIn("kilobyte-4.1-3b-q4_k_m.gguf", MODEL_URL)
+        self.assertIn(MODEL_URL.rsplit("/", 1)[-1], script)  # installer and config agree on the asset
 
     def test_service_uses_one_daemon(self):
         unit = (Path(__file__).parents[1] / "systemd" / "kilobyte.service").read_text()

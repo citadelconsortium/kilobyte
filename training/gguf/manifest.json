@@ -1,12 +1,21 @@
 {
-  "artifact": "kilobyte-1.5b-q4_k_m.gguf",
-  "release_asset": "kilobyte.gguf",
-  "release": "brain-1.1",
-  "sha256": "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7",
-  "size_bytes": 986047936,
+  "artifact": "kilobyte-4.1-3b-q4_k_m.gguf",
+  "release_asset": "kilobyte-4.1-3b-q4_k_m.gguf",
+  "release": "brain-1.2",
+  "sha256": "72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2",
+  "size_bytes": 2099501536,
   "format": "GGUF v3",
-  "architecture": "qwen2",
-  "base_model": "unsloth/Qwen2.5-1.5B-Instruct",
+  "architecture": "granite",
+  "base_model": "ibm-granite/granite-4.1-3b",
   "quantization": "Q4_K_M",
-  "status": "verified-converted-release-candidate"
+  "llama_cpp_ref": "69bf6437914596fbbc4caf09a7ac16f2acdd1a94",
+  "eval": {
+    "suite": "training/evaluate.py",
+    "score": 19.5,
+    "max_score": 21.0,
+    "fraction": 0.929,
+    "critical_failures": [],
+    "verdict": "PASS"
+  },
+  "status": "verified-converted-promoted"
 }

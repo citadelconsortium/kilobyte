@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 
-# Descriptive local filename; the GitHub release asset remains kilobyte.gguf for
-# backwards compatibility with existing download URLs.
-MODEL_FILENAME = "kilobyte-1.5b-q4_k_m.gguf"
+# Descriptive local filename doubles as the GitHub release asset name from brain-1.2 on;
+# the legacy kilobyte.gguf name is still recognised for older installs.
+MODEL_FILENAME = "kilobyte-4.1-3b-q4_k_m.gguf"
 LEGACY_MODEL_FILENAME = "kilobyte.gguf"
-MODEL_URL = "https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.1/kilobyte.gguf"
-MODEL_SHA256 = "6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7"
+MODEL_URL = "https://github.com/citadelconsortium/kilobyte/releases/download/brain-1.2/kilobyte-4.1-3b-q4_k_m.gguf"
+MODEL_SHA256 = "72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2"
 MODEL_REPOSITORY = "citadelconsortium/kilobyte (release brain-1.1)"
 MODEL_QUANTIZATION = "Q4_K_M"
 

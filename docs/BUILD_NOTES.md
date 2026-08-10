@@ -3,8 +3,8 @@
 What Kilobyte contains, what has been added, and the reasoning behind the decisions that
 are not obvious from the code.
 
-Framework version 1.13.6 · brain `kilobyte-1.5b-q4_k_m.gguf` (Qwen2.5 1.5B Q4_K_M,
-Apache-2.0) · SHA-256 `6cdcca6b3876fa07d841dfc718e10a10bd128d6602cd73a23a54109b4333b6b7`
+Framework version 1.13.6 · brain `kilobyte-4.1-3b-q4_k_m.gguf` (IBM Granite-4.1-3B Q4_K_M,
+Apache-2.0) · SHA-256 `72ec67bc6f964ce97f966cc83719100da00e058468aa0a5258cd7286a56cc8d2`
 
 ## What is in it
 

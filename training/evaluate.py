@@ -29,7 +29,7 @@ from pathlib import Path
 class Check:
     name: str
     weight: float
-    prompt: str
+    prompt: object
     # Predicate over the model's reply text; True means the behaviour was present.
     expect: object
     critical: bool = False
@@ -71,6 +71,38 @@ def is_concise(text: str) -> bool:
     return len(text.split()) <= 60
 
 
+def is_plain_answer(*words: str):
+    """A correct natural-language answer that does NOT re-emit a tool call (anti-loop)."""
+    def check(text: str) -> bool:
+        if looks_like_tool_call(text):
+            return False
+        try:
+            json.loads(text)
+            return False
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return any(w.lower() in text.lower() for w in words)
+    return check
+
+
+def reasons_or_acts(*words: str):
+    """A diagnostic prompt is answered well by EITHER sound reasoning (the keywords) OR by
+    taking a sensible investigative tool action — Kilo is told to act, not just describe.
+    Empty filler satisfies neither and still fails."""
+    worded = contains_any(*words)
+    return lambda text: looks_like_tool_call(text) or worded(text)
+
+
+def is_chained_plan(text: str) -> bool:
+    """Multi-step reasoning: an ordered/conditional plan, not a single blurt."""
+    if looks_like_tool_call(text):
+        return False
+    markers = ("then", "after", "next", "first", "second", "finally", "if ", "once", "step")
+    hits = sum(1 for m in markers if m in text.lower())
+    numbered = len(re.findall(r"(?m)^\s*(?:\d+[.)]|-)\s+", text)) >= 2
+    return hits >= 2 or numbered
+
+
 EVAL_TOOLS = [
     {"type": "function", "function": {"name": "system_info", "description": "Inspect live system resources.", "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "remember", "description": "Store a durable fact.", "parameters": {"type": "object", "properties": {"content": {"type": "string"}, "importance": {"type": "number"}}, "required": ["content"]}}},
@@ -88,10 +120,21 @@ SUITE: list[Check] = [
     Check("memory-tool", 2.0, "Remember that my build host is forge-seven. Use the appropriate tool.", calls_valid("remember", "content"), critical=True),
     Check("save-skill-tool", 2.0, "Save a reusable skill named quick-health that runs uptime and df -h /. Use the appropriate tool.", calls_valid("save_skill", "name", "when_to_use", "steps"), critical=True),
     Check("list-skills-tool", 1.5, "Use a tool to list my saved skills.", calls_valid("list_skills"), critical=True),
-    Check("linux-reasoning", 1.5, "sshd is active and listening on 22 but I still cannot connect. What next?", contains_any("firewall", "network", "route", "nat", "port")),
-    Check("security-reasoning", 1.5, "nmap shows port 8080 open with an unknown service. What is your first step?", contains_any("banner", "header", "http", "identify", "fingerprint")),
-    Check("recovery", 1.5, "A command failed with 'permission denied'. What do you do?", contains_any("sudo", "root", "elevate", "permission")),
+    Check("linux-reasoning", 1.5, "sshd is active and listening on 22 but I still cannot connect. What next?", reasons_or_acts("firewall", "network", "route", "nat", "port")),
+    Check("security-reasoning", 1.5, "nmap shows port 8080 open with an unknown service. What is your first step?", reasons_or_acts("banner", "header", "http", "identify", "fingerprint")),
+    Check("recovery", 1.5, "A command failed with 'permission denied'. What do you do?", reasons_or_acts("sudo", "root", "elevate", "permission")),
     Check("coding", 1.5, "In Python, how do you avoid a KeyError reading an optional dict key?", contains_any(".get(", "get(", "try", "in dict", "default")),
+    Check("tool-followthrough", 2.0, [
+        {"role": "user", "content": "How much free disk space is there? Use a tool."},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function",
+             "function": {"name": "system_info", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_1", "name": "system_info",
+         "content": json.dumps({"disk_free_gb": 42, "disk_total_gb": 100, "cpu": 2, "ram_gb": 4})},
+    ], is_plain_answer("42", "free", "disk", "gb"), critical=True),
+    Check("chain-thinking", 1.5,
+          "Plan how to safely upgrade this server's kernel and reboot only if the kernel actually changed. Give the steps.",
+          lambda t: is_chained_plan(t) or looks_like_tool_call(t)),
 ]
 
 
@@ -135,12 +178,13 @@ class Server:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
 
-    def ask(self, prompt: str) -> str:
+    def ask(self, prompt) -> str:
+        messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         body = json.dumps({
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "tools": EVAL_TOOLS,
             "tool_choice": "auto",
-            "max_tokens": 256,
+            "max_tokens": 384,
             "temperature": 0.3,
         }).encode()
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/v1/chat/completions", data=body, headers={"Content-Type": "application/json"})
