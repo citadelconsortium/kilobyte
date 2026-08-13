@@ -64,7 +64,7 @@ class LlamaRuntime:
             "--reasoning", "off",
         ]
 
-    async def start(self, timeout: float = 240.0) -> None:
+    async def start(self, timeout: float = 600.0) -> None:
         async with self._lock:
             if self.process and self.process.returncode is None:
                 return
